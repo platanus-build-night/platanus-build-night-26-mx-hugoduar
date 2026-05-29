@@ -4,7 +4,8 @@
 
 A proactive, multi-domain artifact factory: queue a goal before bed, wake up to a reviewable artifact. Code PRs, reusable tools, social posts, clinical analyses, mechanic diagnostics — same orchestration spine, different producers.
 
-<img src="./project-logo.png" alt="Noctua logo" width="160" />
+<img width="1408" height="768" alt="Generated Image May 29, 2026 - 5_13PM" src="https://github.com/user-attachments/assets/086a6b46-16da-49c3-94f6-849a217471c1" />
+
 
 **Hacker:** Hugo Jimenez ([@hugoduar](https://github.com/hugoduar)) — Platanus Build Night Ciudad de México.
 
