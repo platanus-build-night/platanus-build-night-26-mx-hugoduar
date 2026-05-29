@@ -1,8 +1,12 @@
+import shutil
+from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
 from ninja import NinjaAPI
 from noctua.core.auth import BearerAuth
-from noctua.core.models import Mission, Artifact
+from noctua.core.models import Mission, Artifact, Tool
 from noctua.core.schemas import MissionCreate, MissionOut, RespondIn, ArtifactOut
+from noctua.producers.registry import get_producer
 
 api = NinjaAPI(title="Noctua", auth=BearerAuth())
 
@@ -63,3 +67,42 @@ def list_queue(request, kind: str | None = None, queue_state: str | None = None)
 @api.get("/artifacts/{artifact_id}", response=ArtifactOut)
 def get_artifact(request, artifact_id: int):
     return get_object_or_404(Artifact, id=artifact_id)
+
+@api.post("/artifacts/{artifact_id}/approve", response=ArtifactOut)
+def approve_artifact(request, artifact_id: int):
+    a = get_object_or_404(Artifact, id=artifact_id)
+    a.queue_state = "approved"
+    a.reviewed_at = now()
+    a.save(update_fields=["queue_state", "reviewed_at"])
+    if a.kind == "tool" and a.tool:
+        a.tool.status = "graduated"
+        a.tool.save(update_fields=["status"])
+        src = settings.NOCTUA_TOOLS_DIR / a.tool.source_path
+        if not src.is_absolute():
+            src = settings.NOCTUA_TOOLS_DIR.parent / a.tool.source_path
+        dst = settings.NOCTUA_TOOLS_DIR / "graduated" / f"{a.tool.name}.py"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src if src.exists() else a.tool.source_path, dst)
+    else:
+        producer = get_producer(a.producer_key)
+        producer.on_approve(a)
+    return a
+
+@api.post("/artifacts/{artifact_id}/reject", response=ArtifactOut)
+def reject_artifact(request, artifact_id: int):
+    a = get_object_or_404(Artifact, id=artifact_id)
+    a.queue_state = "rejected"
+    a.reviewed_at = now()
+    a.save(update_fields=["queue_state", "reviewed_at"])
+    if a.kind == "tool" and a.tool:
+        a.tool.delete()
+    return a
+
+@api.post("/artifacts/{artifact_id}/promote", response=ArtifactOut)
+def promote_artifact(request, artifact_id: int):
+    a = get_object_or_404(Artifact, id=artifact_id)
+    a.queue_state = "promoted"
+    a.save(update_fields=["queue_state"])
+    producer = get_producer(a.producer_key)
+    producer.on_promote(a)
+    return a
