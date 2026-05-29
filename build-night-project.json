@@ -1,5 +1,5 @@
 {
-  "project-name": "<FILL THIS>",
-  "project-oneliner": "<FILL THIS>",
-  "project-description": "<FILL THIS>"
+  "project-name": "Noctua",
+  "project-oneliner": "An AI that never sleeps — runs missions overnight in sandboxes and hands you reviewable artifacts (PRs, tools, posts, analyses) by morning.",
+  "project-description": "Noctua is a proactive, multi-domain artifact factory. You queue a goal before bed; Noctua boots an isolated Docker sandbox, plans a step graph, fabricates any tools it needs, validates the work (tests must pass), and lands the result — a draft PR, a reusable tool, a social post, a clinical analysis — in a morning Review Queue. The hackathon MVP demos the overnight PR builder vertical end-to-end against a controlled demo repo, with stub tabs for the other producer kinds to convey the platform thesis. Code is just our first producer."
 }
