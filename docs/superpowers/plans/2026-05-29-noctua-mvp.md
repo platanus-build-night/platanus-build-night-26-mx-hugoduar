@@ -1347,23 +1347,38 @@ class Sandbox:
         self.info = SandboxRunInfo()
 
     def boot(self, image: str, repo_url: str | None) -> SandboxRunInfo:
+        import os
         self.client.images.pull(image)  # idempotent
+        env = {}
+        if os.environ.get("GITHUB_TOKEN"):
+            env["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
         self.container = self.client.containers.run(
             image,
             command="sleep infinity",
             detach=True,
-            cpu_count=2,
+            nano_cpus=2_000_000_000,  # 2 cores (cpu_count is Windows-only in docker-py)
             mem_limit="2g",
             working_dir="/work",
             tmpfs={"/work": "rw,size=512m"},
             network_mode="bridge",
             labels={"noctua.role": "mission"},
+            environment=env,
         )
         self.info.container_id = self.container.id
         self.info.image_ref = image
         self.info.state = "ready"
         if repo_url:
-            self.exec(["bash", "-lc", f"apt-get update -qq && apt-get install -qq -y git && git clone {repo_url} /work"], timeout=300)
+            # install git + gh inside the container so producer can run gh pr create later
+            self.exec(["bash", "-lc",
+                "apt-get update -qq && "
+                "apt-get install -qq -y git curl ca-certificates && "
+                "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                "chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main' > /etc/apt/sources.list.d/github-cli.list && "
+                "apt-get update -qq && apt-get install -qq -y gh && "
+                "gh auth setup-git && "
+                f"git clone {repo_url} /work"
+            ], timeout=600)
         return self.info
 
     def exec(self, cmd: list[str], stdin: str = "", timeout: int = 60):
@@ -1548,7 +1563,7 @@ class NestedSandbox(Sandbox):
             image,
             command="sleep infinity",
             detach=True,
-            cpu_count=1,
+            nano_cpus=1_000_000_000,  # 1 core
             mem_limit="512m",
             working_dir="/work",
             tmpfs={"/work": "rw,size=128m"},
@@ -2423,16 +2438,15 @@ class PRProducer:
         for turn in range(MAX_EDIT_TURNS):
             resp = call_with_cache(messages, system, CODER_MODEL, tools=tools_for_claude, max_tokens=4000)
             increment_spent(mission.id, tokens=resp.usage.input_tokens + resp.usage.output_tokens)
-            if resp.stop_reason == "end_turn":
-                if any(getattr(b, "text", "").strip() == "DONE" for b in resp.content if hasattr(b, "text")):
-                    return ToolResult(ok=True, value="edit-loop complete")
-                messages.append({"role": "assistant", "content": resp.content})
-                continue
-            assistant_msg = {"role": "assistant", "content": resp.content}
-            messages.append(assistant_msg)
-            tool_results = []
-            for block in resp.content:
-                if getattr(block, "type", "") == "tool_use":
+
+            # Always append the assistant turn so the next request has the conversation history.
+            messages.append({"role": "assistant", "content": resp.content})
+
+            if resp.stop_reason == "tool_use":
+                tool_results = []
+                for block in resp.content:
+                    if getattr(block, "type", "") != "tool_use":
+                        continue
                     if block.name == "needs_input":
                         raise NeedsInput(block.input["prompt"])
                     entry = registry.lookup(block.name, current_mission_id=mission.id)
@@ -2446,15 +2460,45 @@ class PRProducer:
                         "content": json.dumps({"ok": result.ok, "value": result.value, "error": result.error})[:8000],
                         "is_error": not result.ok,
                     })
-            if tool_results:
                 messages.append({"role": "user", "content": tool_results})
+                continue
+
+            if resp.stop_reason == "end_turn":
+                if any(getattr(b, "text", "").strip() == "DONE" for b in resp.content if hasattr(b, "text")):
+                    return ToolResult(ok=True, value="edit-loop complete")
+                # model stopped without DONE and without calling a tool — nudge it.
+                messages.append({"role": "user", "content": "Continue. Reply 'DONE' only when tests pass."})
+                continue
+
+            if resp.stop_reason == "max_tokens":
+                # truncated mid-thought; let it continue in the next turn
+                continue
+
+            # refusal, stop_sequence, pause_turn — abort the loop
+            return ToolResult(ok=False, error=f"edit-loop aborted: stop_reason={resp.stop_reason}")
+
         return ToolResult(ok=False, error="edit-loop exhausted MAX_EDIT_TURNS")
 
     def _fetch_issue(self, sandbox, issue_url: str) -> str:
+        # Fetch issue text host-side via the GitHub REST API.
+        # The sandbox doesn't have credentials and shouldn't need network for this.
         if not issue_url:
             return ""
-        r = sandbox.exec(["bash", "-lc", f"gh issue view {issue_url} --json title,body --jq '.title + \"\\n\\n\" + .body'"])
-        return r.stdout if r.exit_code == 0 else ""
+        import re, httpx, os
+        m = re.search(r"github\.com/([^/]+)/([^/]+)/issues/(\d+)", issue_url)
+        if not m:
+            return ""
+        owner, repo, number = m.group(1), m.group(2), m.group(3)
+        token = os.environ.get("GITHUB_TOKEN", "")
+        r = httpx.get(
+            f"https://api.github.com/repos/{owner}/{repo}/issues/{number}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return ""
+        body = r.json()
+        return f"{body.get('title','')}\n\n{body.get('body','')}"
 
     def finalize(self, mission: Mission, sandbox):
         # PR URL was created by the last tool step (gh_pr_create). Find it.
