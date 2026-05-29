@@ -1,0 +1,39 @@
+[project]
+name = "noctua"
+version = "0.1.0"
+description = "AI that never sleeps — overnight artifact factory"
+requires-python = ">=3.12"
+dependencies = [
+  "django>=5.0,<6.0",
+  "django-ninja>=1.3",
+  "psycopg[binary]>=3.2",
+  "celery[redis]>=5.4",
+  "redis>=5.0",
+  "docker>=7.1",
+  "anthropic>=0.40",
+  "click>=8.1",
+  "httpx>=0.27",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-django>=4.9",
+  "pytest-celery>=1.1",
+  "pytest-mock>=3.14",
+  "ruff>=0.7",
+]
+
+[project.scripts]
+noctua = "noctua.cli:cli"
+
+[project.entry-points."noctua.producers"]
+pr = "noctua.producers.pr:PRProducer"
+social_post = "noctua.producers.stub:SocialPostStub"
+clinical_analysis = "noctua.producers.stub:ClinicalAnalysisStub"
+diagnostic = "noctua.producers.stub:DiagnosticStub"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "noctua.settings"
+python_files = ["test_*.py"]

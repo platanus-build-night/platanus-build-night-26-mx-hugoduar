@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: noctua
+      POSTGRES_PASSWORD: noctua
+      POSTGRES_DB: noctua
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noctua"]
+      interval: 5s
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
