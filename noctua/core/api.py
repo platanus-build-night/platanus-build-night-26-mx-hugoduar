@@ -16,9 +16,23 @@ api = NinjaAPI(title="Noctua", auth=BearerAuth())
 
 DEFAULT_BUDGET = {"max_wall_seconds": 1800, "max_tokens": 200_000, "max_tool_calls": 50}
 
-@api.post("/missions", response={201: MissionOut})
+@api.post("/missions", response={201: MissionOut, 400: dict})
 def create_mission(request, payload: MissionCreate):
     from noctua.runner.tasks import run_mission  # local import to avoid Celery at import time
+    # Pre-flight: producer's required_toolkits must each be reachable
+    # via at least one active Connection. (Any one toolkit in the list suffices —
+    # see spec §5 "alternatives, any of which suffices".)
+    try:
+        producer = get_producer(payload.producer_key)
+    except LookupError:
+        return 400, {"error": "unknown_producer", "producer_key": payload.producer_key}
+    required = list(getattr(producer, "required_toolkits", []) or [])
+    if required:
+        active = set(Connection.objects.filter(
+            toolkit__in=required, status="active",
+        ).values_list("toolkit", flat=True))
+        if not active:
+            return 400, {"error": "missing_connections", "toolkits": required}
     budget = payload.budget or DEFAULT_BUDGET
     m = Mission.objects.create(
         goal=payload.goal,
