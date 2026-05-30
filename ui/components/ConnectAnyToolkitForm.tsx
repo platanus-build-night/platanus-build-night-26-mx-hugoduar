@@ -31,7 +31,9 @@ export default function ConnectAnyToolkitForm() {
     <div className="space-y-3">
       <h2 className="text-sm font-medium text-foreground">Add a toolkit</h2>
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
+        <label htmlFor="toolkit-input" className="sr-only">Toolkit name</label>
         <input
+          id="toolkit-input"
           type="text"
           value={name}
           onChange={e => setName(e.target.value)}
@@ -48,7 +50,7 @@ export default function ConnectAnyToolkitForm() {
         </button>
       </form>
       {error && (
-        <p className="text-xs text-muted-foreground">{error}</p>
+        <p className="text-xs text-red-400">{error}</p>
       )}
       <p className="text-xs text-muted-foreground">
         Toolkit name is uppercased automatically. A new tab will open for OAuth.
