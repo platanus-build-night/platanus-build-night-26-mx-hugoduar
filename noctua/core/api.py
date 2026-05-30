@@ -392,6 +392,179 @@ def ingest_mock_signal(request, body: MockSignalIn):
     return 201, _serialize_signal(signal)
 
 
+class FeatureRequestIn(Schema):
+    """Payload schema for the feature_request signal endpoint."""
+    goal: str = ""
+    repo_url: str = ""
+    base: str = "main"
+
+    class Config:
+        extra = "allow"
+
+
+@api.post("/signals/feature_request", response={201: SignalOut})
+def ingest_feature_request_signal(request, body: FeatureRequestIn):
+    """Feature-request signal intake — routes directly to a PR mission.
+
+    Payload: {goal, repo_url?, base?}
+    """
+    import json as _json
+    from noctua.core.models import Signal, Mission
+    from noctua.signals.router import route_signal
+    import uuid
+
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        payload = body.dict()
+
+    goal = (payload.get("goal") or "").strip()
+    title = (goal[:120] + "…") if len(goal) > 120 else goal or "(no goal)"
+    external_id = f"manual-{uuid.uuid4().hex[:12]}"
+
+    signal = Signal.objects.create(
+        source="feature_request",
+        external_id=external_id,
+        title=title,
+        payload=payload,
+    )
+
+    decision = route_signal("feature_request", payload)
+    if decision.action == "ignore":
+        signal.routing_status = "ignored"
+        signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    from noctua.runner.tasks import run_mission
+    mission = Mission.objects.create(
+        goal=decision.goal,
+        producer_key=decision.producer_key,
+        repo_url=decision.repo_url,
+        issue_url=decision.issue_url,
+        inputs=decision.inputs or {},
+        budget=DEFAULT_BUDGET,
+    )
+    signal.mission = mission
+    signal.routing_status = "routed"
+    signal.routing_reason = decision.reason
+    signal.save(update_fields=["mission", "routing_status", "routing_reason"])
+    run_mission.delay(mission.id)
+    return 201, _serialize_signal(signal)
+
+
+class WhatsAppWebhookIn(Schema):
+    """Loose wrapper so Ninja accepts the JSON body; we re-parse raw bytes."""
+    message: dict = {}
+    conversation: dict = {}
+
+    class Config:
+        extra = "allow"
+
+
+@api.post("/signals/whatsapp", response={200: SignalOut, 201: SignalOut, 401: dict}, auth=None)
+def ingest_whatsapp_signal(request, body: WhatsAppWebhookIn):
+    """Kapso WhatsApp webhook intake (phone-number scope, v2 payloads)."""
+    import json as _json
+    import logging
+    from django.conf import settings
+    from noctua.core.models import Signal, Mission
+    from noctua.signals.router import route_signal
+    from noctua.whatsapp import signature as wa_sig, media as wa_media, client as wa_client
+
+    logger = logging.getLogger(__name__)
+
+    raw = request.body
+    sig = request.headers.get("X-Webhook-Signature", "")
+    if not wa_sig.verify(raw, sig, settings.KAPSO_WEBHOOK_SECRET):
+        return 401, {"error": "invalid signature"}
+
+    try:
+        payload = _json.loads(raw)
+    except Exception:
+        payload = body.dict()
+
+    message = payload.get("message") or {}
+    conversation = payload.get("conversation") or {}
+    external_id = str(message.get("id") or "")
+    wa_from = conversation.get("phone_number") or ""
+    if wa_from.startswith("+"):
+        wa_from = wa_from[1:]
+    title = (message.get("kapso") or {}).get("content") or message.get("type") or "(no title)"
+
+    if not external_id:
+        signal = Signal.objects.create(
+            source="whatsapp", external_id=f"missing:{_short_hash(payload)}",
+            title=title[:512], payload=payload,
+            routing_status="failed", routing_reason="missing message.id",
+        )
+        return 201, _serialize_signal(signal)
+
+    if wa_from not in settings.NOCTUA_WHATSAPP_ALLOWLIST:
+        signal, created = Signal.objects.get_or_create(
+            source="whatsapp", external_id=external_id,
+            defaults={"title": title[:512], "payload": payload,
+                      "routing_status": "ignored",
+                      "routing_reason": f"from {wa_from!r} not in allowlist"},
+        )
+        return (201 if created else 200), _serialize_signal(signal)
+
+    signal, created = Signal.objects.get_or_create(
+        source="whatsapp", external_id=external_id,
+        defaults={"title": title[:512], "payload": payload},
+    )
+    if not created:
+        return 200, _serialize_signal(signal)
+
+    try:
+        media_info = wa_media.download(message, signal.id)
+    except Exception as exc:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"media download: {exc}"
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    router_payload = {
+        **media_info,
+        "text": (message.get("text") or {}).get("body", ""),
+        "wa_from": wa_from,
+    }
+    signal.payload = {**payload, "router_input": router_payload}
+    signal.save(update_fields=["payload"])
+
+    decision = route_signal("whatsapp", router_payload)
+    if decision.action == "ignore":
+        signal.routing_status = "ignored"
+        signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    from noctua.runner.tasks import run_mission
+    mission = Mission.objects.create(
+        goal=decision.goal,
+        producer_key=decision.producer_key,
+        repo_url=decision.repo_url,
+        issue_url=decision.issue_url,
+        inputs=decision.inputs or {},
+        budget=DEFAULT_BUDGET,
+    )
+    signal.mission = mission
+    signal.routing_status = "routed"
+    signal.routing_reason = decision.reason
+    signal.save(update_fields=["mission", "routing_status", "routing_reason"])
+    run_mission.delay(mission.id)
+
+    try:
+        wa_client.send_text(
+            to=wa_from,
+            body=f"Got it — mission #{mission.id} queued ({decision.producer_key}). I'll send the result when ready.",
+        )
+    except Exception:
+        logger.exception("whatsapp ack send failed for mission %s", mission.id)
+
+    return 201, _serialize_signal(signal)
+
+
 @api.get("/signals", response=list[SignalOut])
 def list_signals(request, status: str | None = None, source: str | None = None):
     from noctua.core.models import Signal
