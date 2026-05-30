@@ -104,8 +104,11 @@ class Sandbox:
                     started_at=now(),
                 )
                 self.sandbox_run_id = run.id
-            except Exception:
-                pass
+                self._log(f"SANDBOX_RUN persisted id={run.id}")
+            except Exception as e:
+                # Don't fail the mission on a logging-table issue, but surface
+                # it in the sandbox log so we can diagnose instead of guessing.
+                self._log(f"SANDBOX_RUN persist FAILED: {type(e).__name__}: {e}")
         # Always bootstrap dev tools + git identity so any git command works,
         # regardless of whether the LLM uses the bundled tool or raw bash.
         # gh auth setup-git is gated on GITHUB_TOKEN presence to stay a no-op
@@ -215,8 +218,8 @@ class Sandbox:
                     state="torn_down", finished_at=now(),
                 )
                 self.sandbox_run_id = None  # don't double-update
-            except Exception:
-                pass
+            except Exception as e:
+                self._log(f"SANDBOX_RUN teardown update FAILED: {type(e).__name__}: {e}")
 
 
 class NestedSandbox(Sandbox):
