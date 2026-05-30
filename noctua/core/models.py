@@ -1,7 +1,7 @@
 from django.db import models
 
 MISSION_STATES = [(s, s) for s in ["queued", "running", "succeeded", "failed", "stopped", "needs_input"]]
-SIGNAL_SOURCES = [(s, s) for s in ["sentry", "manual"]]
+SIGNAL_SOURCES = [(s, s) for s in ["sentry", "manual", "mock", "whatsapp"]]
 ROUTING_STATUSES = [(s, s) for s in ["pending", "routed", "ignored", "failed"]]
 DOMAINS = [(d, d) for d in ["code", "social", "clinical", "diagnostic", "cad"]]
 SANDBOX_STATES = [(s, s) for s in ["booting", "ready", "exited", "torn_down"]]
