@@ -57,6 +57,17 @@ export async function getMissionSandboxes(missionId: number) {
   return call(`${API}/api/missions/${missionId}/sandboxes`);
 }
 
+export async function respondToMission(id: number, response: string) {
+  return call(`${API}/api/missions/${id}/respond`, {
+    method: "POST",
+    body: JSON.stringify({ response }),
+  });
+}
+
+export async function cancelMission(id: number) {
+  return call(`${API}/api/missions/${id}/cancel`, { method: "POST" });
+}
+
 export async function getProducers() {
   return call(`${API}/api/producers`);
 }
@@ -77,4 +88,22 @@ export async function listSignals(status?: string, source?: string) {
 
 export async function getSignalDetail(id: number) {
   return call(`${API}/api/signals/${id}/detail`);
+}
+
+import type { Connection, InitiateConnectionResponse } from "@/lib/types";
+
+export async function listConnections(): Promise<Connection[]> {
+  return call(`${API}/api/connections`);
+}
+
+export async function initiateConnection(toolkit: string): Promise<InitiateConnectionResponse> {
+  return call(`${API}/api/connections/${toolkit}/initiate`, { method: "POST" });
+}
+
+export async function refreshConnection(toolkit: string) {
+  return call(`${API}/api/connections/${toolkit}/refresh`, { method: "POST" });
+}
+
+export async function disconnectConnection(toolkit: string) {
+  return call(`${API}/api/connections/${toolkit}/disconnect`, { method: "POST" });
 }

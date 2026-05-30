@@ -94,3 +94,20 @@ export interface Plan {
   steps: PlanStep[];
   rendered_md: string;
 }
+
+export type ConnectionStatus = "active" | "expired" | "revoked" | "pending";
+
+export interface Connection {
+  toolkit: string;
+  status: ConnectionStatus;
+  composio_conn_id: string;
+  connected_at: string | null;
+  last_error: string;
+}
+
+export interface InitiateConnectionResponse {
+  toolkit: string;
+  redirect_url: string;
+  composio_conn_id: string;
+  status: ConnectionStatus;
+}
