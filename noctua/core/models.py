@@ -8,6 +8,7 @@ SANDBOX_STATES = [(s, s) for s in ["booting", "ready", "exited", "torn_down"]]
 TOOL_STATUSES = [(s, s) for s in ["hardcoded", "fabricated_sandbox_only", "graduated"]]
 ARTIFACT_KINDS = [(k, k) for k in ["pr", "social_post", "analysis", "diagnostic", "cad", "tool"]]
 QUEUE_STATES = [(s, s) for s in ["pending", "approved", "rejected", "promoted"]]
+CONNECTION_STATUSES = [(s, s) for s in ["active", "expired", "revoked", "pending"]]
 
 def empty_spent():
     return {"wall_seconds": 0, "tokens": 0, "tool_calls": 0}
@@ -91,3 +92,14 @@ class Signal(models.Model):
 
     class Meta:
         unique_together = [("source", "external_id")]
+
+class Connection(models.Model):
+    """Per-toolkit OAuth state for the single shared Composio user_id."""
+
+    toolkit = models.CharField(max_length=64, unique=True)
+    status = models.CharField(max_length=16, choices=CONNECTION_STATUSES, default="pending")
+    composio_conn_id = models.CharField(max_length=128)
+    connected_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
