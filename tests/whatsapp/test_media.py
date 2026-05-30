@@ -119,3 +119,30 @@ def test_download_is_idempotent(settings_kapso, tmp_path):
     download(_image_msg(), signal_id=99)
     download(_image_msg(), signal_id=99)
     assert route.call_count == 1
+
+
+@respx.mock
+def test_filename_with_path_traversal_is_sanitized(settings_kapso, tmp_path):
+    respx.get("https://api.kapso.test/media/evil.bin").mock(
+        return_value=httpx.Response(200, content=b"EVIL")
+    )
+    msg = {
+        "type": "document",
+        "document": {"id": "media_id_x"},
+        "kapso": {
+            "has_media": True,
+            "media_url": "https://api.kapso.test/media/evil.bin",
+            "media_data": {
+                "url": "https://api.kapso.test/media/evil.bin",
+                "filename": "../../../etc/evil",
+                "content_type": "application/octet-stream",
+                "byte_size": 4,
+            },
+        },
+    }
+    result = download(msg, signal_id=123)
+    p = Path(result["media_paths"][0])
+    assert p.exists()
+    # The file is inside dest_dir, not escaped
+    assert p.parent == tmp_path / "whatsapp_media" / "123"
+    assert p.name == "evil"  # basename only

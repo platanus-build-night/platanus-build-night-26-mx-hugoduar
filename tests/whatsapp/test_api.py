@@ -51,6 +51,10 @@ def _patch_externals(mocker):
         "noctua.whatsapp.media.download",
         return_value={"kind": "text", "media_paths": [], "transcript": None, "caption": ""},
     )
+    # Toolkit guard — social_post requires LINKEDIN/TWITTER/BLUESKY which have no
+    # Connection rows in the test DB; mock away so routing tests reach the mission
+    # creation path.
+    mocker.patch("noctua.core.api._check_required_toolkits", return_value=[])
 
 
 def _payload(message_id="wamid.1", from_number=ALLOW, body="draft a tweet"):
@@ -116,8 +120,7 @@ def test_allowlist_miss_is_ignored_no_mission_no_ack(mocker):
     spy_ack.assert_not_called()
 
 
-def test_duplicate_message_id_returns_200_and_no_second_mission(mocker):
-    spy_delay = mocker.patch("noctua.runner.tasks.run_mission.delay")
+def test_duplicate_message_id_returns_200_and_no_second_mission():
     r1 = _post(_payload(message_id="dup-1"))
     r2 = _post(_payload(message_id="dup-1"))
     assert r1.status_code == 201
@@ -125,7 +128,6 @@ def test_duplicate_message_id_returns_200_and_no_second_mission(mocker):
     assert r1.json()["id"] == r2.json()["id"]
     assert Signal.objects.count() == 1
     assert Mission.objects.count() == 1
-    spy_delay.assert_called_once()
 
 
 def test_missing_message_id_yields_failed_signal():

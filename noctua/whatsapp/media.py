@@ -25,6 +25,8 @@ def download(message: dict, signal_id: int) -> dict:
     dest_dir = Path(settings.NOCTUA_ARCHIVE_DIR) / "whatsapp_media" / str(signal_id)
     dest_dir.mkdir(parents=True, exist_ok=True)
     filename = media_data.get("filename") or _filename_from_url(media_url)
+    # Strip any directory components to prevent path traversal (e.g. "../../../etc/passwd")
+    filename = Path(filename).name or "media.bin"
     dest = dest_dir / filename
 
     if not dest.exists():
