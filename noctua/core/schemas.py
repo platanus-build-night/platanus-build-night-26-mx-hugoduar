@@ -59,3 +59,18 @@ class ArtifactOut(Schema):
     validation: dict
     queue_state: str
     tool_id: Optional[int] = None
+
+
+class ConnectionOut(Schema):
+    toolkit: str
+    status: str
+    composio_conn_id: str
+    connected_at: str | None = None
+    last_error: str = ""
+
+
+class ConnectionInitiateOut(Schema):
+    toolkit: str
+    redirect_url: str
+    composio_conn_id: str
+    status: str

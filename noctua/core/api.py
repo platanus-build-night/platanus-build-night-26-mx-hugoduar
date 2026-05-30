@@ -7,8 +7,9 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from ninja import NinjaAPI, Schema
 from noctua.core.auth import BearerAuth
-from noctua.core.models import Mission, Artifact, Tool, Producer, Plan
-from noctua.core.schemas import MissionCreate, MissionOut, MissionListOut, PlanOut, RespondIn, ArtifactOut
+from noctua.core.models import Mission, Artifact, Tool, Producer, Plan, Connection
+from noctua.core.schemas import MissionCreate, MissionOut, MissionListOut, PlanOut, RespondIn, ArtifactOut, ConnectionOut, ConnectionInitiateOut
+from noctua.integrations.composio import ComposioClient
 from noctua.producers.registry import get_producer
 
 api = NinjaAPI(title="Noctua", auth=BearerAuth())
@@ -360,6 +361,73 @@ def update_rubric(request, key: str, payload: RubricIn):
     if key in paths:
         Path(paths[key]).write_text(payload.rubric_md)
     return p
+
+
+# ---- Composio connections --------------------------------------------------
+
+
+def _serialize_connection(c: Connection) -> dict:
+    return {
+        "toolkit": c.toolkit,
+        "status": c.status,
+        "composio_conn_id": c.composio_conn_id,
+        "connected_at": c.connected_at.isoformat() if c.connected_at else None,
+        "last_error": c.last_error,
+    }
+
+
+@api.get("/connections", response=list[ConnectionOut])
+def list_connections(request):
+    return [_serialize_connection(c) for c in Connection.objects.all().order_by("toolkit")]
+
+
+@api.post("/connections/{toolkit}/initiate", response={201: ConnectionInitiateOut})
+def initiate_connection(request, toolkit: str):
+    toolkit = toolkit.upper()
+    client = ComposioClient()
+    init = client.initiate_connection(toolkit=toolkit, user_id=settings.COMPOSIO_USER_ID)
+    obj, _ = Connection.objects.update_or_create(
+        toolkit=toolkit,
+        defaults={
+            "status": "pending",
+            "composio_conn_id": init.composio_conn_id,
+            "last_error": "",
+            "connected_at": None,
+        },
+    )
+    return 201, {
+        "toolkit": obj.toolkit,
+        "redirect_url": init.redirect_url,
+        "composio_conn_id": obj.composio_conn_id,
+        "status": obj.status,
+    }
+
+
+@api.post("/connections/{toolkit}/refresh", response=ConnectionOut)
+def refresh_connection(request, toolkit: str):
+    toolkit = toolkit.upper()
+    obj = get_object_or_404(Connection, toolkit=toolkit)
+    client = ComposioClient()
+    raw_status = client.fetch_connection_status(obj.composio_conn_id).upper()
+    if raw_status == "ACTIVE":
+        obj.status = "active"
+        obj.connected_at = now()
+        obj.last_error = ""
+    elif raw_status in ("EXPIRED", "FAILED", "REVOKED"):
+        obj.status = "expired"
+    else:
+        obj.status = "pending"
+    obj.save(update_fields=["status", "connected_at", "last_error", "updated_at"])
+    return _serialize_connection(obj)
+
+
+@api.post("/connections/{toolkit}/disconnect", response=ConnectionOut)
+def disconnect_connection(request, toolkit: str):
+    toolkit = toolkit.upper()
+    obj = get_object_or_404(Connection, toolkit=toolkit)
+    obj.status = "revoked"
+    obj.save(update_fields=["status", "updated_at"])
+    return _serialize_connection(obj)
 
 
 # Terminal mission states (logs stream until any of these)
