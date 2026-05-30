@@ -2,9 +2,22 @@
 __pycache__/
 *.pyc
 .env
+.env.local
+.env.*.local
 .pytest_cache/
 node_modules/
 ui/.next/
+ui/.env.local
 archive/
 tools/fabricated/
 tools/graduated/
+noctua.egg-info/
+
+# Local debug / smoke artifacts
+.smoke-*.png
+.audit-*.png
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
