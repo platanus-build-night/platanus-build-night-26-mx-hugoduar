@@ -5,8 +5,19 @@ fail (cannot proceed), or route to a Mission with a chosen producer key
 and goal. The router does NOT enqueue the mission — it returns a plan
 the caller (API view) acts on, so retries and idempotency are easier.
 """
+import logging
+import re
 from dataclasses import dataclass
 from typing import Protocol
+
+from noctua.core.models import Producer
+from noctua.runner.llm import call_with_cache
+
+logger = logging.getLogger(__name__)
+
+CLASSIFIER_MODEL = "claude-haiku-4-5"
+
+_REPO_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+(?:\.git)?/?")
 
 
 @dataclass
@@ -105,8 +116,241 @@ class SentryRouter:
         )
 
 
+# --- Mock router ------------------------------------------------------------
+
+# Maps the payload `kind` field to (producer_key, artifact_label).
+# `kind` is the public name we accept on the wire; producer_key is the entry
+# point key registered in pyproject.toml.
+_MOCK_KIND_TO_PRODUCER = {
+    "code": "pr",
+    "tool": "tool_demo",
+    "social": "social_post",
+    "clinical": "clinical_analysis",
+    "diagnostic": "diagnostic",
+    "cad": "cad",
+}
+
+
+class MockRouter:
+    """Dispatch a synthetic signal to any producer.
+
+    Designed for local dev and demos: lets you fire a signal that simulates
+    "something from the outside world arrived" without standing up Sentry,
+    Zendesk, etc. The payload tells the router which artifact kind to produce.
+
+    Expected payload shape:
+      {
+        "kind": "code" | "tool" | "social" | "clinical" | "diagnostic" | "cad",
+        "external_id": "abc123",          # used for idempotent dedupe at the
+                                          # endpoint layer; not required here
+        "title": "short label",           # optional, surfaced in the queue
+        "goal": "free-form instruction",  # required — what the producer does
+        "repo_url": "https://...",        # required for kind=code
+        "issue_url": "https://...",       # optional, for kind=code
+        "inputs": { ... }                 # passed through to Mission.inputs
+      }
+    """
+
+    source = "mock"
+
+    def decide(self, payload: dict) -> RouteDecision:
+        kind = (payload.get("kind") or "").strip().lower()
+        if not kind:
+            return RouteDecision(action="ignore", reason="missing 'kind' in payload")
+
+        producer_key = _MOCK_KIND_TO_PRODUCER.get(kind)
+        if not producer_key:
+            return RouteDecision(
+                action="ignore",
+                reason=f"unknown kind {kind!r} (expected one of {sorted(_MOCK_KIND_TO_PRODUCER)})",
+            )
+
+        goal = (payload.get("goal") or "").strip()
+        if not goal:
+            return RouteDecision(action="ignore", reason="missing 'goal' in payload")
+
+        repo_url = (payload.get("repo_url") or "").strip()
+        if kind == "code" and not repo_url:
+            return RouteDecision(
+                action="ignore",
+                reason="kind='code' requires a 'repo_url'",
+            )
+
+        inputs = dict(payload.get("inputs") or {})
+        inputs.setdefault("mock_kind", kind)
+
+        return RouteDecision(
+            action="route",
+            reason=f"mock signal for kind={kind!r}",
+            producer_key=producer_key,
+            goal=goal,
+            repo_url=repo_url,
+            issue_url=(payload.get("issue_url") or "").strip(),
+            inputs=inputs,
+        )
+
+
+# --- Feature request router -------------------------------------------------
+
+class FeatureRequestRouter:
+    """Route a feature request directly to a PR mission.
+
+    Payload shape: {goal, repo_url?, base?}
+    """
+    source = "feature_request"
+
+    def decide(self, payload: dict) -> RouteDecision:
+        goal = (payload.get("goal") or "").strip()
+        if not goal:
+            return RouteDecision(action="ignore", reason="missing goal")
+        repo_url = payload.get("repo_url") or "https://github.com/hugoduar/noctua-demo-app"
+        return RouteDecision(
+            action="route",
+            reason="feature request",
+            producer_key="pr",
+            goal=goal,
+            repo_url=repo_url,
+            issue_url="",
+            inputs={"base": payload.get("base", "main")},
+        )
+
+
+# --- WhatsApp router --------------------------------------------------------
+
+class WhatsAppRouter:
+    """Classify an inbound WhatsApp message into producer + goal via Haiku."""
+
+    source = "whatsapp"
+
+    def decide(self, payload: dict) -> RouteDecision:
+        valid_keys = set(Producer.objects.values_list("key", flat=True))
+        if not valid_keys:
+            return RouteDecision(action="ignore", reason="no producers registered")
+
+        system = self._build_system_prompt(valid_keys)
+        user = self._build_user_message(payload)
+        tools = [{
+            "name": "route",
+            "description": "Pick a producer and draft the mission goal.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "producer_key": {"type": "string", "enum": sorted(valid_keys)},
+                    "goal": {"type": "string"},
+                },
+                "required": ["producer_key", "goal"],
+            },
+        }]
+
+        try:
+            resp = call_with_cache(
+                messages=[{"role": "user", "content": user}],
+                system=system,
+                model=CLASSIFIER_MODEL,
+                max_tokens=1024,
+                tools=tools,
+            )
+        except Exception as exc:
+            logger.warning("whatsapp classifier call failed: %s", exc)
+            return RouteDecision(
+                action="ignore",
+                reason=f"classifier unavailable: {exc}",
+            )
+
+        if resp.stop_reason != "tool_use":
+            text = ""
+            for block in resp.content or []:
+                if getattr(block, "type", None) == "text":
+                    text = block.text or ""
+                    break
+            return RouteDecision(
+                action="ignore",
+                reason=f"classifier declined: {text[:200]}",
+            )
+
+        tool_input = {}
+        for block in resp.content:
+            if getattr(block, "type", None) == "tool_use":
+                tool_input = block.input
+                break
+
+        producer_key = tool_input.get("producer_key", "")
+        goal = tool_input.get("goal", "")
+        if producer_key not in valid_keys:
+            return RouteDecision(
+                action="ignore",
+                reason=f"unknown producer {producer_key!r}",
+            )
+        if not goal.strip():
+            return RouteDecision(
+                action="ignore",
+                reason="classifier returned empty goal",
+            )
+
+        repo_url = ""
+        if producer_key == "pr":
+            text_blob = " ".join([
+                payload.get("text", ""),
+                payload.get("caption", ""),
+                payload.get("transcript") or "",
+            ])
+            m = _REPO_RE.search(text_blob)
+            if not m:
+                return RouteDecision(
+                    action="ignore",
+                    reason="pr producer requires a GitHub repo URL in the message",
+                )
+            repo_url = m.group(0)
+
+        inputs = {
+            "wa_from": payload.get("wa_from", ""),
+            "media_paths": payload.get("media_paths", []),
+            "transcript": payload.get("transcript"),
+            "kind": payload.get("kind", "text"),
+        }
+
+        return RouteDecision(
+            action="route",
+            reason="whatsapp classifier",
+            producer_key=producer_key,
+            goal=goal,
+            repo_url=repo_url,
+            inputs=inputs,
+        )
+
+    def _build_system_prompt(self, valid_keys: set[str]) -> str:
+        lines = [
+            "You route inbound WhatsApp messages to one of these producers.",
+            "Each producer accepts a free-text 'goal'. Use the most appropriate producer.",
+            "If the message is off-topic chatter (greetings, jokes, spam), respond with text instead of calling the route tool.",
+            "",
+            "Producers:",
+        ]
+        for p in Producer.objects.filter(key__in=valid_keys).order_by("key"):
+            rubric = (p.rubric_md or "(no rubric)").strip().split("\n")[0]
+            lines.append(f"- {p.key}: {rubric}")
+        lines.append("")
+        lines.append("Use the 'route' tool with the chosen producer_key and a clear goal.")
+        return "\n".join(lines)
+
+    def _build_user_message(self, payload: dict) -> str:
+        parts = [f"kind: {payload.get('kind', 'text')}"]
+        if payload.get("text"):
+            parts.append(f"text: {payload['text']}")
+        if payload.get("caption"):
+            parts.append(f"caption: {payload['caption']}")
+        if payload.get("transcript"):
+            parts.append(f"transcript: {payload['transcript']}")
+        if payload.get("media_paths"):
+            parts.append(f"media_count: {len(payload['media_paths'])}")
+        return "\n".join(parts)
+
+
 _ROUTERS: dict[str, SignalRouter] = {
     "sentry": SentryRouter(),
+    "mock": MockRouter(),
+    "feature_request": FeatureRequestRouter(),
+    "whatsapp": WhatsAppRouter(),
 }
 
 
