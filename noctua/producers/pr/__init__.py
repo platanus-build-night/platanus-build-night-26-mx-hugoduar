@@ -10,6 +10,9 @@ from noctua.runner.executor import NeedsInput
 from noctua.tools.registry import ToolRegistry
 from noctua.tools.base import ToolResult
 
+
+_PR_URL_RE = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$")
+
 EDIT_PROMPT = Path(__file__).parent / "prompts" / "edit.md"
 MAX_EDIT_TURNS = 10
 
@@ -157,11 +160,28 @@ class PRProducer:
     def on_approve(self, artifact: Artifact):
         if not artifact.uri:
             return
+        if not _PR_URL_RE.match(artifact.uri):
+            return
         from noctua.sandbox.manager import Sandbox
         sb = Sandbox()
         sb.boot("python:3.12-slim", None)
         try:
-            sb.exec(["bash", "-lc", f"gh pr ready {artifact.uri}"])
+            # install gh (no user data interpolated)
+            sb.exec(
+                [
+                    "bash",
+                    "-lc",
+                    "set -e && apt-get update -qq && "
+                    "apt-get install -qq -y curl ca-certificates && "
+                    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                    "chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                    "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main' > /etc/apt/sources.list.d/github-cli.list && "
+                    "apt-get update -qq && apt-get install -qq -y gh",
+                ],
+                timeout=600,
+            )
+            # validated URL as discrete argv
+            sb.exec(["gh", "pr", "ready", "--", artifact.uri])
         finally:
             sb.teardown()
 

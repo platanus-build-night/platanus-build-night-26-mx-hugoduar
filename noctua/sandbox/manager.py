@@ -1,8 +1,18 @@
 import io
 import os
+import re
 import tarfile
 import docker
 from dataclasses import dataclass, field
+
+
+_REPO_URL_RE = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+(\.git)?/?$")
+
+
+def _validate_repo_url(repo_url: str) -> str:
+    if not _REPO_URL_RE.match(repo_url):
+        raise ValueError(f"unsafe repo_url: {repo_url!r}")
+    return repo_url
 
 
 @dataclass
@@ -48,22 +58,25 @@ class Sandbox:
         self.info.image_ref = image
         self.info.state = "ready"
         if repo_url:
-            # install git + gh inside the container so producer can run gh pr create later
+            _validate_repo_url(repo_url)
+            # 1) install git + gh (no user data interpolated)
             self.exec(
                 [
                     "bash",
                     "-lc",
+                    "set -e && "
                     "apt-get update -qq && "
                     "apt-get install -qq -y git curl ca-certificates && "
                     "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
                     "chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && "
                     "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main' > /etc/apt/sources.list.d/github-cli.list && "
                     "apt-get update -qq && apt-get install -qq -y gh && "
-                    "gh auth setup-git && "
-                    f"git clone {repo_url} /work",
+                    "gh auth setup-git",
                 ],
                 timeout=600,
             )
+            # 2) clone the validated repo as a discrete argv (no shell)
+            self.exec(["git", "clone", "--", repo_url, "/work"], timeout=300)
         return self.info
 
     def exec(self, cmd: list[str], stdin: str = "", timeout: int = 60) -> ExecResult:
