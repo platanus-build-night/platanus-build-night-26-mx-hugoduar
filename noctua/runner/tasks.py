@@ -40,6 +40,11 @@ def run_mission(mission_id: int):
                 archive_mission(m.id)
             except Exception:
                 pass
+            try:
+                from noctua.whatsapp import maybe_reply_to_whatsapp
+                maybe_reply_to_whatsapp(m)
+            except Exception:
+                pass
         return mission_id
 
     # External-tools producers (social_post, clinical_analysis, diagnostic, cad after migration):
@@ -66,6 +71,11 @@ def run_mission(mission_id: int):
             from noctua.runner.archive import archive_mission
             try:
                 archive_mission(m.id)
+            except Exception:
+                pass
+            try:
+                from noctua.whatsapp import maybe_reply_to_whatsapp
+                maybe_reply_to_whatsapp(m)
             except Exception:
                 pass
         return mission_id
@@ -117,6 +127,11 @@ def run_mission(mission_id: int):
             archive_mission(m.id)
         except Exception:
             pass  # archive is best-effort; don't fail the mission on archive error
+        try:
+            from noctua.whatsapp import maybe_reply_to_whatsapp
+            maybe_reply_to_whatsapp(m)
+        except Exception:
+            pass
     return mission_id
 
 
