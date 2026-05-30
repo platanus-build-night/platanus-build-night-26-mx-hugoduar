@@ -26,7 +26,7 @@ class ToolFabricator:
             raise NotImplementedError(f"only seed_db is implemented in MVP, got: {name}")
         prompt = PROMPT.read_text()
         resp = self.client.messages.create(
-            model="claude-opus-4-5",
+            model="claude-opus-4-7",
             max_tokens=2000,
             system=prompt,
             messages=[{"role": "user", "content": f"Signature: {json.dumps(signature)}\nContext: {json.dumps(context or {})}"}],
@@ -44,7 +44,9 @@ class ToolFabricator:
         ns.boot("python:3.12-slim", None)
         try:
             ns.exec(["pip", "install", "-q", "psycopg2-binary"], timeout=120)
-            # Write to /tmp (not /work) — Docker put_archive cannot write into tmpfs mounts.
+            # We write to /tmp/tool.py rather than /work/tool.py to keep the validation
+            # script outside the tmpfs working directory the producer code uses. No
+            # tmpfs-related issue with put_archive — both /tmp and /work work fine for it.
             ns.write_file("/tmp/tool.py", source.encode())
             r = ns.exec(["python", "/tmp/tool.py", json.dumps({"rows": 0})], timeout=30)
             if r.exit_code != 0:
