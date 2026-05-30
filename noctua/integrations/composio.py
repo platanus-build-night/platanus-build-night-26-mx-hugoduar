@@ -164,6 +164,10 @@ class ComposioToolAdapter:
                 )
             except ComposioAuthError as e:
                 from noctua.core.models import Connection
+                # Mission pre-flight (POST /api/missions, Task 11) refuses
+                # missions without an active Connection row, so a row should
+                # always exist here; the .update() is a no-op only if it was
+                # deleted out-of-band, which we let pass silently.
                 Connection.objects.filter(toolkit=toolkit).update(
                     status="expired", last_error=str(e),
                 )
