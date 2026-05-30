@@ -6,6 +6,7 @@ import time
 import docker
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 
 _REPO_URL_RE = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+(\.git)?/?$")
@@ -169,26 +170,56 @@ class Sandbox:
         return exec_result
 
     def write_file(self, path: str, content: bytes) -> None:
+        """Write a file inside the sandbox.
+
+        Implementation uses base64 + exec redirection, NOT put_archive.
+        `put_archive` writes into the container's overlay layer, which is
+        MASKED by tmpfs mounts (we mount /work as tmpfs for speed). The
+        bytes appear to "land" but neither bash nor git can see them.
+        Encoding through shell guarantees the file lands in the same view
+        the producer's later commands see.
+        """
         self._log(f"WRITE_FILE {path} ({len(content)} bytes)")
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w") as tar:
-            info = tarfile.TarInfo(name=path.lstrip("/"))
-            info.size = len(content)
-            tar.addfile(info, io.BytesIO(content))
-        buf.seek(0)
-        self.container.put_archive("/", buf.read())
+        import base64
+        import shlex as _shlex
+        encoded = base64.b64encode(content).decode("ascii")
+        parent = str(Path(path).parent) if path else "/"
+        cmd = [
+            "bash", "-lc",
+            f"mkdir -p {_shlex.quote(parent)} && "
+            f"printf '%s' {_shlex.quote(encoded)} | base64 -d > {_shlex.quote(path)}"
+        ]
+        result = self.container.exec_run(cmd, demux=True)
+        if result.exit_code != 0:
+            stdout_b, stderr_b = (
+                result.output if isinstance(result.output, tuple)
+                else (result.output, None)
+            )
+            raise RuntimeError(
+                f"write_file({path}) failed exit={result.exit_code} "
+                f"stderr={(stderr_b or b'').decode('utf-8', 'replace')!r}"
+            )
 
     def read_file(self, path: str) -> bytes:
+        """Read a file from the sandbox.
+
+        Uses `cat` over exec, NOT get_archive, for symmetry with write_file:
+        get_archive reads the container's overlay layer, which doesn't see
+        files written into a tmpfs mount.
+        """
         self._log(f"READ_FILE {path}")
-        stream, _ = self.container.get_archive(path)
-        buf = io.BytesIO()
-        for chunk in stream:
-            buf.write(chunk)
-        buf.seek(0)
-        with tarfile.open(fileobj=buf, mode="r") as tar:
-            member = tar.next()
-            f = tar.extractfile(member)
-            return f.read() if f else b""
+        import shlex as _shlex
+        result = self.container.exec_run(
+            ["bash", "-lc", f"cat {_shlex.quote(path)}"],
+            demux=True,
+        )
+        if result.exit_code != 0:
+            return b""
+        stdout_b, _ = (
+            result.output if isinstance(result.output, tuple)
+            else (result.output, None)
+        )
+        return stdout_b or b""
 
     def teardown(self):
         self._log("TEARDOWN")

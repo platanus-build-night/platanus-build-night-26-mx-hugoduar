@@ -1,3 +1,4 @@
+import base64
 import json
 import shlex
 from pathlib import Path
@@ -204,9 +205,18 @@ def create_pr_for_artifact(artifact_id: int, overrides: dict | None = None):
                 f"stdout={r.stdout!r} stderr={r.stderr!r}"
             )
 
-        # write NOCTUA.md and verify the file made it
-        sandbox.write_file("/work/NOCTUA.md", noctua_md.encode())
-        r = sandbox.exec(["bash", "-lc", "ls -la /work/NOCTUA.md && wc -c /work/NOCTUA.md"])
+        # Write NOCTUA.md via shell redirection — NOT Sandbox.write_file.
+        # write_file uses Docker put_archive, which lands in the container's
+        # overlay layer; that's masked by our /work tmpfs mount, so `bash`
+        # inside the container can't see the file. base64+heredoc bypasses
+        # that by going through exec, which sees the tmpfs view that git
+        # also sees.
+        encoded = base64.b64encode(noctua_md.encode("utf-8")).decode("ascii")
+        r = sandbox.exec([
+            "bash", "-lc",
+            f"printf '%s' {shlex.quote(encoded)} | base64 -d > /work/NOCTUA.md && "
+            "ls -la /work/NOCTUA.md && wc -c /work/NOCTUA.md"
+        ])
         if r.exit_code != 0:
             raise RuntimeError(
                 f"NOCTUA.md write didn't land: exit={r.exit_code} "
