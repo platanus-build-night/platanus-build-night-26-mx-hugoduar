@@ -1,0 +1,106 @@
+"""Single seam between Noctua and the Composio Python SDK.
+
+Everything Composio-shaped flows through this module. The rest of Noctua sees
+plain dataclasses (ExecutionResult, ActionSpec, ConnectionInit) and one custom
+exception (ComposioAuthError) — never the raw SDK types. If the SDK shape
+changes in a future release, only this file changes.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+from django.conf import settings
+
+# Import surface: only this module imports `composio` directly.
+from composio import Composio  # type: ignore[import-untyped]
+
+
+# ---- Return types -----------------------------------------------------------
+
+
+@dataclass
+class ExecutionResult:
+    successful: bool
+    data: Any
+    error: str
+
+
+@dataclass
+class ActionSpec:
+    name: str
+    description: str
+    input_schema: dict
+
+
+@dataclass
+class ConnectionInit:
+    redirect_url: str
+    composio_conn_id: str
+
+
+class ComposioAuthError(Exception):
+    """Raised when a Composio call fails because of expired / revoked auth."""
+
+
+def _looks_like_auth_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    cls = type(exc).__name__.lower()
+    return "auth" in msg or "expired" in msg or "auth" in cls
+
+
+# ---- Client -----------------------------------------------------------------
+
+
+class ComposioClient:
+    """Thin, process-wide wrapper around the composio SDK.
+
+    Per-process: not thread-local. The action-spec cache lives on this instance;
+    construct one per worker process and reuse.
+    """
+
+    def __init__(self):
+        if not settings.COMPOSIO_API_KEY:
+            raise RuntimeError(
+                "COMPOSIO_API_KEY is empty. The Celery worker / API process did "
+                "not get the env loaded — restart after "
+                "`set -a; source .env; set +a` or ensure .env exists at the project root."
+            )
+        self._sdk = Composio(api_key=settings.COMPOSIO_API_KEY)
+        self._spec_cache: dict[str, ActionSpec] = {}
+
+    def execute(self, *, slug: str, arguments: dict, user_id: str) -> ExecutionResult:
+        try:
+            raw = self._sdk.tools.execute(slug=slug, arguments=arguments, user_id=user_id)
+        except Exception as e:
+            if _looks_like_auth_error(e):
+                raise ComposioAuthError(str(e)) from e
+            raise
+        return ExecutionResult(
+            successful=bool(getattr(raw, "successful", False)),
+            data=getattr(raw, "data", None),
+            error=getattr(raw, "error", None) or "",
+        )
+
+    def get_action_spec(self, slug: str) -> ActionSpec:
+        if slug in self._spec_cache:
+            return self._spec_cache[slug]
+        raw = self._sdk.tools.get(slug=slug)
+        spec = ActionSpec(
+            name=getattr(raw, "name", slug),
+            description=getattr(raw, "description", "") or "",
+            input_schema=getattr(raw, "input_schema", {}) or {},
+        )
+        self._spec_cache[slug] = spec
+        return spec
+
+    def initiate_connection(self, *, toolkit: str, user_id: str) -> ConnectionInit:
+        raw = self._sdk.connected_accounts.initiate(toolkit=toolkit, user_id=user_id)
+        return ConnectionInit(
+            redirect_url=getattr(raw, "redirect_url", "") or "",
+            composio_conn_id=getattr(raw, "id", "") or "",
+        )
+
+    def fetch_connection_status(self, composio_conn_id: str) -> str:
+        raw = self._sdk.connected_accounts.get(composio_conn_id)
+        return getattr(raw, "status", "UNKNOWN") or "UNKNOWN"
