@@ -29,23 +29,43 @@ _warm_producer_cache()
 
 DEFAULT_BUDGET = {"max_wall_seconds": 1800, "max_tokens": 200_000, "max_tool_calls": 50}
 
+def _check_required_toolkits(producer_key: str) -> list[str]:
+    """Return required toolkits with no active Connection (empty list = OK).
+
+    Returns the list of ``required_toolkits`` declared by the producer if NONE
+    of them has an active Connection row — i.e. the mission should be refused.
+    An empty return means at least one required toolkit is connected (the "any
+    one suffices" semantic) OR the producer has no required_toolkits at all.
+    """
+    try:
+        producer = get_producer(producer_key)
+    except LookupError:
+        return []  # Unknown producer: let the caller surface that error
+    required = list(getattr(producer, "required_toolkits", []) or [])
+    if not required:
+        return []
+    active = set(Connection.objects.filter(
+        toolkit__in=required, status="active",
+    ).values_list("toolkit", flat=True))
+    if active:
+        return []
+    return required
+
+
 @api.post("/missions", response={201: MissionOut, 400: dict})
 def create_mission(request, payload: MissionCreate):
     from noctua.runner.tasks import run_mission  # local import to avoid Celery at import time
+    # Pre-flight: validate producer resolves.
+    try:
+        get_producer(payload.producer_key)
+    except LookupError:
+        return 400, {"error": "unknown_producer", "producer_key": payload.producer_key}
     # Pre-flight: producer's required_toolkits must each be reachable
     # via at least one active Connection. (Any one toolkit in the list suffices —
     # see spec §5 "alternatives, any of which suffices".)
-    try:
-        producer = get_producer(payload.producer_key)
-    except LookupError:
-        return 400, {"error": "unknown_producer", "producer_key": payload.producer_key}
-    required = list(getattr(producer, "required_toolkits", []) or [])
-    if required:
-        active = set(Connection.objects.filter(
-            toolkit__in=required, status="active",
-        ).values_list("toolkit", flat=True))
-        if not active:
-            return 400, {"error": "missing_connections", "toolkits": required}
+    missing = _check_required_toolkits(payload.producer_key)
+    if missing:
+        return 400, {"error": "missing_connections", "toolkits": missing}
     budget = payload.budget or DEFAULT_BUDGET
     m = Mission.objects.create(
         goal=payload.goal,
@@ -124,6 +144,14 @@ def respond_to_mission(request, mission_id: int, payload: RespondIn):
     from noctua.runner.tasks import run_mission
     m = get_object_or_404(Mission, id=mission_id)
     if m.state != "needs_input":
+        return m
+    # Re-check toolkits: a connection may have been revoked while the mission
+    # was paused waiting for input. If that happened, leave state as needs_input
+    # and surface the reason so the operator knows to reconnect before resuming.
+    missing = _check_required_toolkits(m.producer_key)
+    if missing:
+        m.state_reason = f"missing_connections:{','.join(missing)}"
+        m.save(update_fields=["state_reason"])
         return m
     m.needs_input_response = payload.response
     m.state = "queued"
@@ -306,6 +334,13 @@ def ingest_sentry_signal(request, body: SentryWebhookIn):
         return 201, _serialize_signal(signal)
 
     # action == 'route'
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
     from noctua.runner.tasks import run_mission
     mission = Mission.objects.create(
         goal=decision.goal,
@@ -375,6 +410,13 @@ def ingest_mock_signal(request, body: MockSignalIn):
         signal.save(update_fields=["routing_status", "routing_reason"])
         return 201, _serialize_signal(signal)
 
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
     from noctua.runner.tasks import run_mission
     mission = Mission.objects.create(
         goal=decision.goal,
@@ -433,6 +475,13 @@ def ingest_feature_request_signal(request, body: FeatureRequestIn):
     if decision.action == "ignore":
         signal.routing_status = "ignored"
         signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
         signal.save(update_fields=["routing_status", "routing_reason"])
         return 201, _serialize_signal(signal)
 
@@ -536,6 +585,13 @@ def ingest_whatsapp_signal(request, body: WhatsAppWebhookIn):
     if decision.action == "ignore":
         signal.routing_status = "ignored"
         signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
         signal.save(update_fields=["routing_status", "routing_reason"])
         return 201, _serialize_signal(signal)
 

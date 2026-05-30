@@ -1,3 +1,5 @@
+import { Sparkles } from "lucide-react";
+
 interface Props {
   source: string;
   size?: number;
@@ -11,11 +13,22 @@ const ICON_SRC: Record<string, string> = {
 const SOURCE_LABEL: Record<string, string> = {
   sentry: "Sentry",
   manual: "Manual",
+  feature_request: "Feature request",
 };
 
 export default function SourceIcon({ source, size = 14, className = "" }: Props) {
-  const src = ICON_SRC[source];
   const label = SOURCE_LABEL[source] ?? source;
+
+  if (source === "feature_request") {
+    return (
+      <span className={`inline-flex items-center gap-1.5 ${className}`}>
+        <Sparkles width={size} height={size} className="shrink-0" />
+        <span>{label}</span>
+      </span>
+    );
+  }
+
+  const src = ICON_SRC[source];
   if (!src) {
     return (
       <span className={`inline-flex items-center gap-1 text-muted-foreground ${className}`}>

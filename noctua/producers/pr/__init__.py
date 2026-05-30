@@ -61,7 +61,11 @@ class PRProducer:
         system = EDIT_PROMPT.read_text()
         rubric = Producer.objects.get(key="pr").rubric_md
         issue_text = self._fetch_issue(mission.issue_url)
-        messages = [{"role": "user", "content": f"Issue:\n{issue_text}\n\nRubric:\n{rubric}\n\nGo."}]
+        # Always include the mission goal so the edit loop has a clear spec even
+        # when issue_url is empty (e.g. feature_request signals).
+        goal_section = f"Goal: {mission.goal}\n\n" if mission.goal else ""
+        issue_section = f"Issue:\n{issue_text}\n\n" if issue_text else ""
+        messages = [{"role": "user", "content": f"{goal_section}{issue_section}Rubric:\n{rubric}\n\nGo."}]
 
         for turn in range(MAX_EDIT_TURNS):
             resp = call_with_cache(messages, system, CODER_MODEL, tools=tools_for_claude, max_tokens=4000)

@@ -28,7 +28,7 @@ export interface Mission {
   signal_id?: number | null;
 }
 
-export type SignalSource = "sentry" | "manual";
+export type SignalSource = "sentry" | "manual" | "feature_request";
 export type RoutingStatus = "pending" | "routed" | "ignored" | "failed";
 
 export interface Signal {
