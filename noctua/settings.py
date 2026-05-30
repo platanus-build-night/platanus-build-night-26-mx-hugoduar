@@ -16,8 +16,14 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "noctua.core.cors.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
+
+NOCTUA_CORS_ALLOWED_ORIGINS = os.environ.get(
+    "NOCTUA_CORS_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000",
+)
 
 ROOT_URLCONF = "noctua.urls"
 WSGI_APPLICATION = "noctua.wsgi.application"
@@ -45,6 +51,8 @@ CELERY_TASK_SOFT_TIME_LIMIT = 30 * 60
 NOCTUA_API_TOKEN = os.environ.get("NOCTUA_API_TOKEN", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+COMPOSIO_API_KEY = os.environ.get("COMPOSIO_API_KEY", "")
+COMPOSIO_USER_ID = os.environ.get("COMPOSIO_USER_ID", "noctua_default")
 NOCTUA_ARCHIVE_DIR = BASE_DIR / "archive"
 NOCTUA_TOOLS_DIR = BASE_DIR / "tools"
 
