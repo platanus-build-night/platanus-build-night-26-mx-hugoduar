@@ -19,8 +19,9 @@ def run_mission(mission_id: int):
         sandbox.boot(image="python:3.12-slim", repo_url=m.repo_url or None)
         plan, tokens = plan_for_mission(m)
         increment_spent(m.id, tokens=tokens)
+        producer = get_producer(m.producer_key)
         try:
-            execute_plan(m, plan, sandbox)
+            execute_plan(m, plan, sandbox, producer=producer)
         except StoppedByBudget as e:
             m.state = "stopped"
             m.state_reason = f"budget_exceeded: {e.field}"
@@ -31,7 +32,6 @@ def run_mission(mission_id: int):
             m.needs_input_prompt = e.prompt
             m.save(update_fields=["state", "needs_input_prompt"])
             return
-        producer = get_producer(m.producer_key)
         producer.finalize(m, sandbox)
         # also emit kind='tool' artifacts for any tools fabricated during this mission
         for t in Tool.objects.filter(fabricated_by_mission_id=m.id, status="fabricated_sandbox_only"):

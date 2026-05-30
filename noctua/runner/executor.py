@@ -16,7 +16,12 @@ class StoppedByBudget(Exception):
         self.field = field
 
 
-def execute_plan(mission: Mission, plan: Plan, sandbox) -> list[dict]:
+def execute_plan(mission: Mission, plan: Plan, sandbox, producer=None) -> list[dict]:
+    """Execute the plan step-by-step.
+
+    `producer` is required for plans that contain `edit` steps. If omitted,
+    edit steps are marked failed after retries.
+    """
     registry = ToolRegistry()
     results = []
     for step in plan.steps:
@@ -45,8 +50,13 @@ def execute_plan(mission: Mission, plan: Plan, sandbox) -> list[dict]:
                     step["result"] = {"ok": r.exit_code == 0, "value": r.stdout, "error": r.stderr}
                     step["status"] = "succeeded" if r.exit_code == 0 else "failed"
                 elif step["kind"] == "edit":
-                    # delegated to producer; see Task 21
-                    raise NotImplementedError("edit dispatched via producer")
+                    if producer is None:
+                        raise RuntimeError("plan contains edit step but no producer was provided to execute_plan")
+                    result = producer.execute_step(step, sandbox, mission)
+                    if result is None:
+                        raise RuntimeError(f"producer {producer.key!r} returned None for edit step")
+                    step["result"] = {"ok": result.ok, "value": result.value, "error": result.error}
+                    step["status"] = "succeeded" if result.ok else "failed"
                 else:
                     raise ValueError(f"unknown step kind: {step['kind']}")
                 if step["status"] == "succeeded":
