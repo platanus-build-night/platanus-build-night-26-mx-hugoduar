@@ -122,3 +122,83 @@ class ComposioClient:
     def fetch_connection_status(self, composio_conn_id: str) -> str:
         raw = self._sdk.connected_accounts.get(composio_conn_id)
         return getattr(raw, "status", "UNKNOWN") or "UNKNOWN"
+
+
+# ---- Adapter ---------------------------------------------------------------
+
+
+class ComposioToolAdapter:
+    """Synthesizes ToolEntry instances for composio:<TOOLKIT>.<ACTION> names.
+
+    Usage:
+        adapter = ComposioToolAdapter()  # constructs its own ComposioClient
+        entry = adapter.lookup("composio:LINKEDIN.LINKEDIN_CREATE_POST")
+        result = entry.callable({"text": "hi"}, sandbox=None)
+    """
+
+    def __init__(self, client: ComposioClient | None = None):
+        self._client = client or ComposioClient()
+        self._entry_cache: dict[str, "ToolEntry"] = {}
+
+    def lookup(self, name: str) -> "ToolEntry":
+        from noctua.tools.base import ToolEntry, ToolResult  # local to avoid cycle
+
+        if name in self._entry_cache:
+            return self._entry_cache[name]
+        if not name.startswith("composio:"):
+            raise ValueError(f"malformed composio tool name (missing prefix): {name}")
+        body = name.removeprefix("composio:")
+        if "." not in body:
+            raise ValueError(f"malformed composio tool name (need TOOLKIT.ACTION): {name}")
+        toolkit, action = body.split(".", 1)
+        spec = self._client.get_action_spec(action)
+
+        client = self._client  # capture for closure
+
+        def call(args: dict, sandbox=None) -> ToolResult:
+            try:
+                r = client.execute(
+                    slug=action,
+                    arguments=args,
+                    user_id=settings.COMPOSIO_USER_ID,
+                )
+            except ComposioAuthError as e:
+                from noctua.core.models import Connection
+                Connection.objects.filter(toolkit=toolkit).update(
+                    status="expired", last_error=str(e),
+                )
+                return ToolResult(ok=False, error=f"connection_expired:{toolkit}")
+            except Exception as e:
+                return ToolResult(ok=False, error=str(e))
+            if r.successful:
+                return ToolResult(ok=True, value=r.data)
+            return ToolResult(ok=False, error=r.error or "composio_execute_failed")
+
+        entry = ToolEntry(
+            name=name,
+            signature=spec.input_schema,
+            status="composio",
+            callable=call,
+            source_path="",  # not on disk
+        )
+        self._entry_cache[name] = entry
+        return entry
+
+    def list_actions_for_producer(self, producer) -> list["ToolEntry"]:
+        from noctua.core.models import Connection
+
+        actions_map: dict[str, list[str]] = getattr(producer, "composio_actions", {}) or {}
+        if not actions_map:
+            return []
+        active_toolkits = set(
+            Connection.objects.filter(
+                toolkit__in=list(actions_map.keys()), status="active",
+            ).values_list("toolkit", flat=True)
+        )
+        entries = []
+        for toolkit, actions in actions_map.items():
+            if toolkit not in active_toolkits:
+                continue
+            for action in actions:
+                entries.append(self.lookup(f"composio:{toolkit}.{action}"))
+        return entries
