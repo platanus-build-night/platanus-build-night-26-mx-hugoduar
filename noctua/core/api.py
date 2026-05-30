@@ -2,9 +2,9 @@ import shutil
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from ninja import NinjaAPI
+from ninja import NinjaAPI, Schema
 from noctua.core.auth import BearerAuth
-from noctua.core.models import Mission, Artifact, Tool
+from noctua.core.models import Mission, Artifact, Tool, Producer
 from noctua.core.schemas import MissionCreate, MissionOut, RespondIn, ArtifactOut
 from noctua.producers.registry import get_producer
 
@@ -108,3 +108,29 @@ def promote_artifact(request, artifact_id: int):
     producer = get_producer(a.producer_key)
     producer.on_promote(a)
     return a
+
+class ProducerOut(Schema):
+    key: str
+    kind: str
+    rubric_md: str
+    version: int
+
+class RubricIn(Schema):
+    rubric_md: str
+
+@api.get("/producers", response=list[ProducerOut])
+def list_producers(request):
+    return list(Producer.objects.all())
+
+@api.put("/producers/{key}/rubric", response=ProducerOut)
+def update_rubric(request, key: str, payload: RubricIn):
+    p = get_object_or_404(Producer, key=key)
+    p.rubric_md = payload.rubric_md
+    p.version += 1
+    p.save(update_fields=["rubric_md", "version"])
+    # also write to disk so it's git-trackable
+    paths = {"pr": "noctua/producers/pr/rubric.md"}
+    if key in paths:
+        from pathlib import Path
+        Path(paths[key]).write_text(payload.rubric_md)
+    return p
