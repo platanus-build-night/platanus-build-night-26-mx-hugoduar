@@ -107,3 +107,17 @@ export async function refreshConnection(toolkit: string) {
 export async function disconnectConnection(toolkit: string) {
   return call(`${API}/api/connections/${toolkit}/disconnect`, { method: "POST" });
 }
+
+export interface CreatePROverrides {
+  title?: string;
+  body?: string;
+  branch?: string;
+  base?: string;
+}
+
+export async function createPullRequest(artifactId: number, overrides?: CreatePROverrides) {
+  return call(`${API}/api/artifacts/${artifactId}/create_pr`, {
+    method: "POST",
+    body: JSON.stringify(overrides ?? {}),
+  });
+}

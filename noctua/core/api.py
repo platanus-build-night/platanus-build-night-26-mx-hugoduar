@@ -147,6 +147,34 @@ def reject_artifact(request, artifact_id: int):
         a.tool.delete()
     return a
 
+class CreatePROverrides(Schema):
+    title: str | None = None
+    body: str | None = None
+    branch: str | None = None
+    base: str | None = None
+
+
+@api.post("/artifacts/{artifact_id}/create_pr", response=ArtifactOut)
+def create_artifact_pr(request, artifact_id: int, payload: CreatePROverrides | None = None):
+    """Enqueue a Celery task that opens a draft PR for this artifact on GitHub."""
+    from noctua.runner.tasks import create_pr_for_artifact  # local import to avoid Celery at import time
+    a = get_object_or_404(Artifact, id=artifact_id)
+    overrides = {}
+    if payload:
+        if payload.title is not None:
+            overrides["title"] = payload.title
+        if payload.body is not None:
+            overrides["body"] = payload.body
+        if payload.branch is not None:
+            overrides["branch"] = payload.branch
+        if payload.base is not None:
+            overrides["base"] = payload.base
+    create_pr_for_artifact.delay(artifact_id, overrides)
+    # Refresh in case eager Celery (tests) already updated the artifact
+    a.refresh_from_db()
+    return a
+
+
 @api.post("/artifacts/{artifact_id}/promote", response=ArtifactOut)
 def promote_artifact(request, artifact_id: int):
     a = get_object_or_404(Artifact, id=artifact_id)
