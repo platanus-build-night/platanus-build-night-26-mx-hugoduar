@@ -30,11 +30,15 @@ def _sentry_payload(issue_id="42", level="error", action="created", slug="noctua
     }
 
 
-def test_routed_creates_mission(mocker):
+def test_routed_creates_mission(mocker, django_capture_on_commit_callbacks):
     # Don't actually run the planner inside the test.
     spy = mocker.patch("noctua.runner.tasks.run_mission.delay")
     c = Client()
-    r = c.post("/api/signals/sentry", data=_sentry_payload(), content_type="application/json", **_auth())
+    # API endpoints now enqueue via transaction.on_commit so the worker
+    # never sees a mission_id before its row is durably committed. The
+    # capture fixture executes those callbacks at the end of the block.
+    with django_capture_on_commit_callbacks(execute=True):
+        r = c.post("/api/signals/sentry", data=_sentry_payload(), content_type="application/json", **_auth())
     assert r.status_code == 201
     body = r.json()
     assert body["routing_status"] == "routed"
