@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getSignalDetail } from "@/lib/api";
 import type { SignalDetail, RoutingStatus } from "@/lib/types";
 import SiteHeader from "@/components/SiteHeader";
+import SourceIcon from "@/components/SourceIcon";
 
 const STATUS_COLOR: Record<RoutingStatus, string> = {
   routed: "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30",
@@ -28,7 +29,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>#{s.id}</span>
             <span>·</span>
-            <span>{s.source}</span>
+            <SourceIcon source={s.source} size={16} />
             <span>·</span>
             <span className="font-mono">{s.external_id}</span>
           </div>

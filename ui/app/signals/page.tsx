@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listSignals } from "@/lib/api";
 import type { Signal, RoutingStatus } from "@/lib/types";
 import SiteHeader from "@/components/SiteHeader";
+import SourceIcon from "@/components/SourceIcon";
 
 const STATUS_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -16,11 +17,6 @@ const STATUS_COLOR: Record<RoutingStatus, string> = {
   ignored: "bg-secondary text-muted-foreground",
   failed: "bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/30",
   pending: "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30",
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  sentry: "Sentry",
-  manual: "Manual",
 };
 
 function fmt(ts?: string) {
@@ -85,7 +81,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
                     <span className={`px-2 py-0.5 rounded-md ${STATUS_COLOR[s.routing_status] ?? "bg-secondary"}`}>
                       {s.routing_status}
                     </span>
-                    <span className="text-muted-foreground">{SOURCE_LABEL[s.source] ?? s.source}</span>
+                    <SourceIcon source={s.source} className="text-muted-foreground" />
                     <span className="text-border">·</span>
                     <span className="text-muted-foreground font-mono">{s.external_id}</span>
                   </div>
