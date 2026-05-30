@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 interface Props {
   source: string;
   size?: number;
@@ -27,13 +25,15 @@ export default function SourceIcon({ source, size = 14, className = "" }: Props)
   }
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`}>
-      <Image
+      {/* Plain <img> — next/image's optimizer chokes on local SVGs under Turbopack, */}
+      {/* and a 14px SVG gains nothing from optimization. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
         src={src}
         alt={`${label} logo`}
         width={size}
         height={size}
         className="shrink-0"
-        unoptimized
       />
       <span>{label}</span>
     </span>
