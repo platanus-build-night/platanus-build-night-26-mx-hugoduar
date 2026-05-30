@@ -3,12 +3,31 @@ import os
 from django.core.management.base import BaseCommand
 
 
+# Samples reference code that ACTUALLY exists in the noctua-demo-app
+# fixture repo so Claude can find what the error describes.
+# Demo repo currently has: src/app.py with FastAPI app + @app.get("/")
+#                          tests/test_app.py with test_root
 _SAMPLE_TITLES = [
-    ("TypeError: 'NoneType' object is not iterable", "src/app.py in collate_widgets"),
-    ("KeyError: 'user_id'", "src/middleware/auth.py in resolve_session"),
-    ("psycopg2.errors.UndefinedColumn: column \"created_on\" does not exist", "src/db.py in load_recent"),
-    ("ZeroDivisionError: division by zero", "src/metrics.py in moving_average"),
-    ("AssertionError: expected 5 widgets, got 0", "tests/test_app.py in test_seed"),
+    (
+        "AttributeError: 'NoneType' object has no attribute 'lower'",
+        "src/app.py in root",
+    ),
+    (
+        "RuntimeError: missing required header 'X-Request-Id'",
+        "src/app.py in root",
+    ),
+    (
+        "AssertionError: expected status 200, got 500",
+        "tests/test_app.py in test_root",
+    ),
+    (
+        "TypeError: root() got an unexpected keyword argument 'name'",
+        "src/app.py in root",
+    ),
+    (
+        "ValueError: invalid query parameter 'limit'",
+        "src/app.py in root",
+    ),
 ]
 
 

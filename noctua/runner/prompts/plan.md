@@ -14,8 +14,30 @@ Kinds:
 - "tool": call a registered tool by name
 - "edit": LLM-driven code edit loop (the executor will drive Claude tool-use)
 
-Constraints:
+## Sandbox state when your plan runs
+
+- The repo is **already cloned at `/work`** — that's the working directory.
+  **Do not include a `git clone` step.** Don't reference `/repo` — use `/work`.
+- git is installed and a global identity (`noctua@local` / `Noctua`) is set.
+  gh CLI is installed and authenticated against `$GITHUB_TOKEN`. You can
+  open PRs directly with `gh_pr_create` without further setup.
+- Python 3.12 is installed. **Project dev deps are NOT installed yet.** If
+  you need to run tests, your plan must `pip install -e ".[dev]"` (or
+  equivalent for `requirements.txt`/`Pipfile`) inside `/work` first.
+- The project may use `pyproject.toml` instead of `requirements.txt`.
+  Detect this from the actual file tree — don't assume.
+
+## Constraints
+
 - 5–15 steps.
-- Always end with a step that opens a draft PR via gh_pr_create.
-- Always validate with run_pytest before opening the PR.
+- The mission's `goal` is the source of truth for what to fix. If `issue_url`
+  is empty, the goal text itself contains the full spec (e.g. for
+  Sentry-triggered missions, it includes the error title, culprit file,
+  and a permalink).
+- Begin by reading the relevant files cited in the goal; if the culprit
+  function doesn't exist in the codebase, the right fix may be to ADD it,
+  to add the defensive check at a related call site, or to add a
+  regression test that would have caught the error.
+- Always validate with `run_pytest` before opening the PR.
+- Always end with a `gh_pr_create` step.
 - Return ONLY the JSON object.
