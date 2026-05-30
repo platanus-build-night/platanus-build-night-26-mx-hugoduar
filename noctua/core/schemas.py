@@ -74,3 +74,7 @@ class ConnectionInitiateOut(Schema):
     redirect_url: str
     composio_conn_id: str
     status: str
+
+
+class ProducerToolkitsOut(Schema):
+    toolkits: list[str]

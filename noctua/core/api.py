@@ -8,7 +8,7 @@ from django.utils.timezone import now
 from ninja import NinjaAPI, Schema
 from noctua.core.auth import BearerAuth
 from noctua.core.models import Mission, Artifact, Tool, Producer, Plan, Connection
-from noctua.core.schemas import MissionCreate, MissionOut, MissionListOut, PlanOut, RespondIn, ArtifactOut, ConnectionOut, ConnectionInitiateOut
+from noctua.core.schemas import MissionCreate, MissionOut, MissionListOut, PlanOut, RespondIn, ArtifactOut, ConnectionOut, ConnectionInitiateOut, ProducerToolkitsOut
 from noctua.integrations.composio import get_client
 from noctua.producers.registry import get_producer
 
@@ -323,6 +323,75 @@ def ingest_sentry_signal(request, body: SentryWebhookIn):
     return 201, _serialize_signal(signal)
 
 
+class MockSignalIn(Schema):
+    """Payload schema for the generic mock signal endpoint.
+
+    All fields are optional at the schema layer; the MockRouter validates
+    what's actually required for the requested artifact kind.
+    """
+    kind: str = ""
+    external_id: str = ""
+    title: str = ""
+    goal: str = ""
+    repo_url: str = ""
+    issue_url: str = ""
+    inputs: dict = {}
+
+    class Config:
+        extra = "allow"
+
+
+@api.post("/signals/mock", response={200: SignalOut, 201: SignalOut})
+def ingest_mock_signal(request, body: MockSignalIn):
+    """Generic dev/demo signal intake — routes to any producer based on `kind`."""
+    import json as _json
+    from noctua.core.models import Signal, Mission
+    from noctua.signals.router import route_signal
+
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        payload = body.dict()
+
+    # external_id is caller-supplied; fall back to a content hash so retries
+    # of the same payload dedupe even when the caller forgets to set one.
+    external_id = str(payload.get("external_id") or "").strip()
+    if not external_id:
+        external_id = f"auto:{_short_hash(payload)}"
+    title = str(payload.get("title") or payload.get("goal") or "(no title)")[:512]
+
+    signal, created = Signal.objects.get_or_create(
+        source="mock",
+        external_id=external_id,
+        defaults={"title": title, "payload": payload},
+    )
+    if not created:
+        return 200, _serialize_signal(signal)
+
+    decision = route_signal("mock", payload)
+    if decision.action == "ignore":
+        signal.routing_status = "ignored"
+        signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    from noctua.runner.tasks import run_mission
+    mission = Mission.objects.create(
+        goal=decision.goal,
+        producer_key=decision.producer_key,
+        repo_url=decision.repo_url,
+        issue_url=decision.issue_url,
+        inputs=decision.inputs or {},
+        budget=DEFAULT_BUDGET,
+    )
+    signal.mission = mission
+    signal.routing_status = "routed"
+    signal.routing_reason = decision.reason
+    signal.save(update_fields=["mission", "routing_status", "routing_reason"])
+    run_mission.delay(mission.id)
+    return 201, _serialize_signal(signal)
+
+
 @api.get("/signals", response=list[SignalOut])
 def list_signals(request, status: str | None = None, source: str | None = None):
     from noctua.core.models import Signal
@@ -405,7 +474,7 @@ class RubricIn(Schema):
 def list_producers(request):
     return list(Producer.objects.all())
 
-@api.get("/producers/toolkits")
+@api.get("/producers/toolkits", response=ProducerToolkitsOut)
 def list_producer_toolkits(request):
     """Union of every required and optional toolkit across producers currently
     resolvable via the registry cache. Used by the Connections UI."""
