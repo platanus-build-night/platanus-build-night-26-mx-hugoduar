@@ -29,10 +29,23 @@ def _parse_plan_json(text: str) -> dict:
         return json.loads(repaired)
 
 
-def plan_for_mission(mission: Mission) -> tuple[Plan, int]:
-    """Return (Plan, total_tokens_used)."""
+def plan_for_mission(mission: Mission, producer=None) -> tuple[Plan, int]:
+    """Return (Plan, total_tokens_used).
+
+    `producer` is forwarded to `ToolRegistry.all_available` so producer-specific
+    composio tools appear in the planner's tool catalog. If None, only bundled
+    and graduated tools are exposed.
+    """
     system = PLAN_PROMPT.read_text()
     rubric = Producer.objects.get(key=mission.producer_key).rubric_md
+
+    from noctua.tools.registry import ToolRegistry
+    registry = ToolRegistry()
+    available = registry.all_available(current_mission_id=mission.id, producer=producer)
+    tool_catalog = "\n".join(
+        f"- {e.name} ({e.status}): {e.signature}" for e in available
+    )
+
     user = f"""Mission:
 Goal: {mission.goal}
 Repo: {mission.repo_url}
@@ -42,6 +55,9 @@ Success criteria: {mission.success_criteria}
 
 Producer rubric:
 {rubric}
+
+Available tools (use these exact names in step payload.name):
+{tool_catalog}
 """
     resp = call_with_cache([{"role": "user", "content": user}], system, PLANNER_MODEL)
     text = resp.content[0].text.strip()

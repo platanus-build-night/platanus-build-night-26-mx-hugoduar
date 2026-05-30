@@ -41,3 +41,12 @@ Kinds:
 - Always validate with `run_pytest` before opening the PR.
 - Always end with a `gh_pr_create` step.
 - Return ONLY the JSON object.
+
+External-tool steps:
+- "composio:<TOOLKIT>.<ACTION>" names (when listed in Available tools) are calls to
+  an external SaaS via Composio's managed gateway. They run outside the sandbox;
+  do NOT wrap them in bash -lc. The `payload.args` are JSON arguments matching
+  the action's input_schema.
+- For external_tools producers, every step should be `kind: "tool"` with a
+  composio:* name, OR `kind: "edit"` for a producer-driven Claude step
+  (no `kind: "exec"`).

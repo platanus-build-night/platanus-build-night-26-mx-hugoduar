@@ -57,6 +57,6 @@ class ToolRegistry:
                 fabricated_by_mission_id=current_mission_id,
             ):
                 entries.append(self._load_from_disk(row))
-        if producer is not None:
+        if producer is not None and getattr(producer, "composio_actions", None):
             entries.extend(self._composio_adapter().list_actions_for_producer(producer))
         return entries
