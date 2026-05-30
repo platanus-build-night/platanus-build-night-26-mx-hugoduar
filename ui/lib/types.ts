@@ -46,6 +46,20 @@ export interface MissionListItem {
   finished_at?: string | null;
 }
 
+export type SandboxState = "booting" | "ready" | "exited" | "torn_down";
+
+export interface SandboxRun {
+  id: number;
+  mission_id: number;
+  image_ref: string;
+  container_id?: string | null;
+  state: SandboxState;
+  log_path: string;
+  ttl_seconds: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
 export interface PlanStep {
   step_id: string;
   kind: "exec" | "tool" | "edit";

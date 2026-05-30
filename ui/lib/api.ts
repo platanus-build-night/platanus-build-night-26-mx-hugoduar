@@ -47,6 +47,16 @@ export async function getMissionPlans(id: number) {
   return call(`${API}/api/missions/${id}/plans`);
 }
 
+export async function listSandboxes(state?: string) {
+  const url = new URL(`${API}/api/sandboxes`);
+  if (state) url.searchParams.set("state", state);
+  return call(url);
+}
+
+export async function getMissionSandboxes(missionId: number) {
+  return call(`${API}/api/missions/${missionId}/sandboxes`);
+}
+
 export async function getProducers() {
   return call(`${API}/api/producers`);
 }

@@ -43,7 +43,7 @@ def run_mission(mission_id: int):
     log_dir = Path(settings.NOCTUA_ARCHIVE_DIR) / str(m.id)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = str(log_dir / "sandbox.log")
-    sandbox = Sandbox(ttl_seconds=m.budget.get("max_wall_seconds", 1800), log_path=log_path)
+    sandbox = Sandbox(ttl_seconds=m.budget.get("max_wall_seconds", 1800), log_path=log_path, mission_id=m.id)
     try:
         sandbox.boot(image="python:3.12-slim", repo_url=m.repo_url or None)
         plan, tokens = plan_for_mission(m)

@@ -33,11 +33,13 @@ class ExecResult:
 
 
 class Sandbox:
-    def __init__(self, ttl_seconds: int = 1800, log_path: str | None = None):
+    def __init__(self, ttl_seconds: int = 1800, log_path: str | None = None, *, mission_id: int | None = None):
         self.client = docker.from_env()
         self.container = None
         self.ttl_seconds = ttl_seconds
         self.log_path = log_path
+        self.mission_id = mission_id
+        self.sandbox_run_id: int | None = None
         self._log_file = None
         self.info = SandboxRunInfo()
         if log_path:
@@ -88,6 +90,22 @@ class Sandbox:
         self.info.image_ref = image
         self.info.state = "ready"
         self._log(f"BOOT_OK container={self.container.id}")
+        if self.mission_id is not None:
+            try:
+                from noctua.core.models import SandboxRun
+                from django.utils.timezone import now
+                run = SandboxRun.objects.create(
+                    mission_id=self.mission_id,
+                    image_ref=image,
+                    container_id=self.container.id,
+                    state="ready",
+                    log_path=self.log_path or "",
+                    ttl_seconds=self.ttl_seconds,
+                    started_at=now(),
+                )
+                self.sandbox_run_id = run.id
+            except Exception:
+                pass
         # Always bootstrap dev tools + git identity so any git command works,
         # regardless of whether the LLM uses the bundled tool or raw bash.
         # gh auth setup-git is gated on GITHUB_TOKEN presence to stay a no-op
@@ -188,6 +206,17 @@ class Sandbox:
                 pass
             self.container = None
             self.info.state = "torn_down"
+        # Best-effort DB update; ignore failures
+        if self.sandbox_run_id is not None:
+            try:
+                from noctua.core.models import SandboxRun
+                from django.utils.timezone import now
+                SandboxRun.objects.filter(id=self.sandbox_run_id).update(
+                    state="torn_down", finished_at=now(),
+                )
+                self.sandbox_run_id = None  # don't double-update
+            except Exception:
+                pass
 
 
 class NestedSandbox(Sandbox):

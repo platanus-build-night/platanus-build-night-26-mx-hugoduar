@@ -135,6 +135,50 @@ def promote_artifact(request, artifact_id: int):
     producer.on_promote(a)
     return a
 
+class SandboxRunOut(Schema):
+    id: int
+    mission_id: int
+    image_ref: str
+    container_id: str | None = None
+    state: str
+    log_path: str
+    ttl_seconds: int
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+def _serialize_sandbox(s) -> dict:
+    return {
+        "id": s.id,
+        "mission_id": s.mission_id,
+        "image_ref": s.image_ref,
+        "container_id": s.container_id,
+        "state": s.state,
+        "log_path": s.log_path,
+        "ttl_seconds": s.ttl_seconds,
+        "started_at": s.started_at.isoformat() if s.started_at else None,
+        "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+    }
+
+
+@api.get("/sandboxes", response=list[SandboxRunOut])
+def list_sandboxes(request, state: str | None = None, mission_id: int | None = None):
+    from noctua.core.models import SandboxRun
+    qs = SandboxRun.objects.all().order_by("-id")
+    if state:
+        qs = qs.filter(state=state)
+    if mission_id:
+        qs = qs.filter(mission_id=mission_id)
+    return [_serialize_sandbox(s) for s in qs[:200]]
+
+
+@api.get("/missions/{mission_id}/sandboxes", response=list[SandboxRunOut])
+def list_mission_sandboxes(request, mission_id: int):
+    from noctua.core.models import SandboxRun
+    qs = SandboxRun.objects.filter(mission_id=mission_id).order_by("id")
+    return [_serialize_sandbox(s) for s in qs]
+
+
 class ProducerOut(Schema):
     key: str
     kind: str
