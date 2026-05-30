@@ -27,6 +27,7 @@ class MissionOut(Schema):
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    signal_id: Optional[int] = None
 
 class MissionListOut(Schema):
     id: int

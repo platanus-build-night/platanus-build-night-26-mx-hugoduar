@@ -55,7 +55,27 @@ def list_missions(request, state: str | None = None, producer_key: str | None = 
 
 @api.get("/missions/{mission_id}", response=MissionOut)
 def get_mission(request, mission_id: int):
-    return get_object_or_404(Mission, id=mission_id)
+    m = get_object_or_404(Mission, id=mission_id)
+    try:
+        sig_id = m.signal.id
+    except Exception:
+        sig_id = None
+    return {
+        "id": m.id,
+        "goal": m.goal,
+        "state": m.state,
+        "state_reason": m.state_reason,
+        "producer_key": m.producer_key,
+        "repo_url": m.repo_url,
+        "issue_url": m.issue_url,
+        "budget": m.budget or {},
+        "spent": m.spent or {},
+        "needs_input_prompt": m.needs_input_prompt,
+        "created_at": m.created_at,
+        "started_at": m.started_at,
+        "finished_at": m.finished_at,
+        "signal_id": sig_id,
+    }
 
 @api.get("/missions/{mission_id}/plans", response=list[PlanOut])
 def list_mission_plans(request, mission_id: int):
@@ -134,6 +154,143 @@ def promote_artifact(request, artifact_id: int):
     producer = get_producer(a.producer_key)
     producer.on_promote(a)
     return a
+
+class SentryWebhookIn(Schema):
+    """Wrapper schema so Ninja treats the body as JSON (not query params).
+
+    Sentry POSTs a raw JSON object; we forward the whole thing as-is.
+    The actual payload fields are accessed dynamically via .dict() / payload.
+    """
+    action: str = ""
+    data: dict = {}
+
+    class Config:
+        extra = "allow"  # accept any additional Sentry fields without validation errors
+
+
+class SignalOut(Schema):
+    id: int
+    source: str
+    external_id: str
+    title: str
+    routing_status: str
+    routing_reason: str
+    received_at: str
+    mission_id: int | None = None
+
+
+class SignalDetailOut(Schema):
+    id: int
+    source: str
+    external_id: str
+    title: str
+    routing_status: str
+    routing_reason: str
+    received_at: str
+    mission_id: int | None = None
+    payload: dict
+
+
+def _serialize_signal(s) -> dict:
+    return {
+        "id": s.id,
+        "source": s.source,
+        "external_id": s.external_id,
+        "title": s.title,
+        "routing_status": s.routing_status,
+        "routing_reason": s.routing_reason,
+        "received_at": s.received_at.isoformat() if s.received_at else "",
+        "mission_id": s.mission_id,
+    }
+
+
+def _short_hash(payload) -> str:
+    import hashlib, json
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:8]
+
+
+@api.post("/signals/sentry", response={200: SignalOut, 201: SignalOut})
+def ingest_sentry_signal(request, body: SentryWebhookIn):
+    """Sentry-issue webhook intake. Body is the raw Sentry payload."""
+    import json as _json
+    from noctua.core.models import Signal, Mission
+    from noctua.signals.router import route_signal
+
+    # Re-parse the raw request body so we store/route the full payload including
+    # any extra fields Sentry sends that aren't declared in SentryWebhookIn.
+    try:
+        payload = _json.loads(request.body)
+    except Exception:
+        payload = body.dict()
+
+    issue = (payload.get("data") or {}).get("issue") or {}
+    external_id = str(issue.get("id") or "")
+    title = issue.get("title") or "(no title)"
+    if not external_id:
+        signal = Signal.objects.create(
+            source="sentry", external_id=f"missing:{_short_hash(payload)}",
+            title=title, payload=payload,
+            routing_status="failed", routing_reason="missing data.issue.id",
+        )
+        return 201, _serialize_signal(signal)
+
+    signal, created = Signal.objects.get_or_create(
+        source="sentry",
+        external_id=external_id,
+        defaults={"title": title, "payload": payload},
+    )
+    if not created:
+        return 200, _serialize_signal(signal)
+
+    decision = route_signal("sentry", payload)
+    if decision.action == "ignore":
+        signal.routing_status = "ignored"
+        signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    # action == 'route'
+    from noctua.runner.tasks import run_mission
+    mission = Mission.objects.create(
+        goal=decision.goal,
+        producer_key=decision.producer_key,
+        repo_url=decision.repo_url,
+        issue_url=decision.issue_url,
+        inputs=decision.inputs or {},
+        budget=DEFAULT_BUDGET,
+    )
+    signal.mission = mission
+    signal.routing_status = "routed"
+    signal.routing_reason = decision.reason
+    signal.save(update_fields=["mission", "routing_status", "routing_reason"])
+    run_mission.delay(mission.id)
+    return 201, _serialize_signal(signal)
+
+
+@api.get("/signals", response=list[SignalOut])
+def list_signals(request, status: str | None = None, source: str | None = None):
+    from noctua.core.models import Signal
+    qs = Signal.objects.all().order_by("-id")
+    if status:
+        qs = qs.filter(routing_status=status)
+    if source:
+        qs = qs.filter(source=source)
+    return [_serialize_signal(s) for s in qs[:200]]
+
+
+@api.get("/signals/{signal_id}", response=SignalOut)
+def get_signal(request, signal_id: int):
+    from noctua.core.models import Signal
+    s = get_object_or_404(Signal, id=signal_id)
+    return _serialize_signal(s)
+
+
+@api.get("/signals/{signal_id}/detail", response=SignalDetailOut)
+def get_signal_detail(request, signal_id: int):
+    from noctua.core.models import Signal
+    s = get_object_or_404(Signal, id=signal_id)
+    return {**_serialize_signal(s), "payload": s.payload}
+
 
 class SandboxRunOut(Schema):
     id: int

@@ -25,6 +25,25 @@ export interface Mission {
   budget: Record<string, number>;
   spent: Record<string, number>;
   needs_input_prompt?: string | null;
+  signal_id?: number | null;
+}
+
+export type SignalSource = "sentry" | "manual";
+export type RoutingStatus = "pending" | "routed" | "ignored" | "failed";
+
+export interface Signal {
+  id: number;
+  source: SignalSource;
+  external_id: string;
+  title: string;
+  routing_status: RoutingStatus;
+  routing_reason: string;
+  received_at: string;
+  mission_id?: number | null;
+}
+
+export interface SignalDetail extends Signal {
+  payload: Record<string, unknown>;
 }
 
 export interface Producer {

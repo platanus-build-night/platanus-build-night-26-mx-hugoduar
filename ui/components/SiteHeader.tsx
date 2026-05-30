@@ -4,9 +4,10 @@ const NAV = [
   { href: "/queue", label: "Queue" },
   { href: "/missions", label: "Missions" },
   { href: "/sandboxes", label: "Sandboxes" },
+  { href: "/signals", label: "Signals" },
 ];
 
-export default function SiteHeader({ active }: { active: "queue" | "missions" | "sandboxes" }) {
+export default function SiteHeader({ active }: { active: "queue" | "missions" | "sandboxes" | "signals" }) {
   return (
     <header className="border-b border-border bg-card/40">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">

@@ -1,6 +1,8 @@
 from django.db import models
 
 MISSION_STATES = [(s, s) for s in ["queued", "running", "succeeded", "failed", "stopped", "needs_input"]]
+SIGNAL_SOURCES = [(s, s) for s in ["sentry", "manual"]]
+ROUTING_STATUSES = [(s, s) for s in ["pending", "routed", "ignored", "failed"]]
 DOMAINS = [(d, d) for d in ["code", "social", "clinical", "diagnostic", "cad"]]
 SANDBOX_STATES = [(s, s) for s in ["booting", "ready", "exited", "torn_down"]]
 TOOL_STATUSES = [(s, s) for s in ["hardcoded", "fabricated_sandbox_only", "graduated"]]
@@ -76,3 +78,16 @@ class Producer(models.Model):
     rubric_md = models.TextField(blank=True)
     default_budget = models.JSONField(default=dict)
     version = models.IntegerField(default=1)
+
+class Signal(models.Model):
+    source = models.CharField(max_length=32, choices=SIGNAL_SOURCES)
+    external_id = models.CharField(max_length=256)
+    title = models.TextField()
+    payload = models.JSONField(default=dict)
+    received_at = models.DateTimeField(auto_now_add=True)
+    routing_status = models.CharField(max_length=32, choices=ROUTING_STATUSES, default="pending", db_index=True)
+    routing_reason = models.TextField(blank=True)
+    mission = models.OneToOneField(Mission, null=True, blank=True, on_delete=models.SET_NULL, related_name="signal")
+
+    class Meta:
+        unique_together = [("source", "external_id")]

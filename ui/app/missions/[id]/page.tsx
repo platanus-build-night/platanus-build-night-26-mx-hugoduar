@@ -4,6 +4,7 @@ import type { Plan, Mission, PlanStep, SandboxRun } from "@/lib/types";
 import SiteHeader from "@/components/SiteHeader";
 import LogPane from "@/components/LogPane";
 import BudgetPanel from "@/components/BudgetPanel";
+import SandboxCard from "@/components/SandboxCard";
 import { toProgressSteps, stepLabel } from "@/lib/toolui-mappers";
 import { ProgressTracker } from "@/components/tool-ui/progress-tracker";
 import { Terminal } from "@/components/tool-ui/terminal";
@@ -113,43 +114,44 @@ export default async function MissionDetail({
                 {mission.state_reason}
               </span>
             )}
+            {mission.signal_id && (
+              <Link
+                href={`/signals/${mission.signal_id}`}
+                className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 hover:bg-blue-500/30"
+              >
+                via signal #{mission.signal_id}
+              </Link>
+            )}
           </div>
         </header>
 
         <BudgetPanel mission={mission} />
 
-        <section className="mt-6">
-          <h2 className="text-sm uppercase tracking-wide text-zinc-400 mb-2">Sandbox</h2>
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm uppercase tracking-wide text-muted-foreground">
+              Sandboxes
+            </h2>
+            {sandboxes.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {sandboxes.length} container{sandboxes.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
           {sandboxes.length === 0 ? (
-            <p className="text-xs text-zinc-500 italic">
-              No sandbox records for this mission.
-              Either this is a content-only producer (no sandbox needed) or
-              the mission ran before sandbox tracking was added.
-            </p>
+            <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground space-y-1">
+              <p>No sandbox records for this mission.</p>
+              <p className="text-[11px] opacity-70">
+                Either this is a content-only producer (no sandbox needed) or
+                the mission ran before sandbox tracking was added.
+              </p>
+            </div>
           ) : (
-            <ul className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {sandboxes.map(s => (
-                <li key={s.id} className="text-xs p-3 rounded border border-zinc-800 bg-zinc-900 font-mono">
-                  <div className="flex items-center justify-between">
-                    <span><span className="text-zinc-500">#</span>{s.id}</span>
-                    <span className={`px-2 py-0.5 rounded ${
-                      s.state === "ready" ? "bg-emerald-700 text-emerald-100" :
-                      s.state === "torn_down" ? "bg-zinc-700 text-zinc-200" :
-                      s.state === "exited" ? "bg-amber-700 text-amber-100" :
-                      "bg-blue-700 text-blue-100"
-                    }`}>{s.state}</span>
-                  </div>
-                  <div className="mt-1 text-zinc-400">image: <span className="text-zinc-200">{s.image_ref}</span></div>
-                  <div className="text-zinc-400">container: <span className="text-zinc-200">{s.container_id?.slice(0, 12) ?? "—"}</span></div>
-                  <div className="text-zinc-400">
-                    ttl: <span className="text-zinc-200">{s.ttl_seconds}s</span>
-                    {" · "}
-                    started: <span className="text-zinc-200">{s.started_at ? new Date(s.started_at).toLocaleString() : "—"}</span>
-                    {s.finished_at && <> · finished: <span className="text-zinc-200">{new Date(s.finished_at).toLocaleString()}</span></>}
-                  </div>
-                </li>
+                <SandboxCard key={s.id} sandbox={s} hideMissionLink />
               ))}
-            </ul>
+            </div>
           )}
         </section>
 

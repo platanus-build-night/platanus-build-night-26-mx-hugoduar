@@ -67,3 +67,14 @@ export async function updateRubric(key: string, rubric_md: string) {
     body: JSON.stringify({ rubric_md }),
   });
 }
+
+export async function listSignals(status?: string, source?: string) {
+  const url = new URL(`${API}/api/signals`);
+  if (status) url.searchParams.set("status", status);
+  if (source) url.searchParams.set("source", source);
+  return call(url);
+}
+
+export async function getSignalDetail(id: number) {
+  return call(`${API}/api/signals/${id}/detail`);
+}
