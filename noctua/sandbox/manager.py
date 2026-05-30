@@ -113,3 +113,23 @@ class Sandbox:
                 pass
             self.container = None
             self.info.state = "torn_down"
+
+
+class NestedSandbox(Sandbox):
+    def boot(self, image: str, repo_url: str | None) -> SandboxRunInfo:
+        self.client.images.pull(image)
+        self.container = self.client.containers.run(
+            image,
+            command="sleep infinity",
+            detach=True,
+            nano_cpus=1_000_000_000,  # 1 core
+            mem_limit="512m",
+            working_dir="/work",
+            tmpfs={"/work": "rw,size=128m"},
+            network_mode="none",
+            labels={"noctua.role": "fabrication"},
+        )
+        self.info.container_id = self.container.id
+        self.info.image_ref = image
+        self.info.state = "ready"
+        return self.info
