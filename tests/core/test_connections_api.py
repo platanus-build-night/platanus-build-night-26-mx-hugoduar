@@ -30,8 +30,8 @@ def test_list_connections_returns_all_rows(auth_headers):
 
 def test_initiate_creates_pending_row_and_returns_oauth_url(auth_headers, settings):
     settings.COMPOSIO_USER_ID = "noctua_default"
-    with patch("noctua.core.api.ComposioClient") as Client_cls:
-        Client_cls.return_value.initiate_connection.return_value = MagicMock(
+    with patch("noctua.core.api.get_client") as get_client:
+        get_client.return_value.initiate_connection.return_value = MagicMock(
             redirect_url="https://oauth.example/x", composio_conn_id="conn_new"
         )
         r = Client().post("/api/connections/LINKEDIN/initiate", **auth_headers)
@@ -48,8 +48,8 @@ def test_initiate_creates_pending_row_and_returns_oauth_url(auth_headers, settin
 
 def test_initiate_replaces_existing_row_for_same_toolkit(auth_headers):
     Connection.objects.create(toolkit="LINKEDIN", status="expired", composio_conn_id="old")
-    with patch("noctua.core.api.ComposioClient") as Client_cls:
-        Client_cls.return_value.initiate_connection.return_value = MagicMock(
+    with patch("noctua.core.api.get_client") as get_client:
+        get_client.return_value.initiate_connection.return_value = MagicMock(
             redirect_url="https://oauth.example/x", composio_conn_id="conn_new"
         )
         r = Client().post("/api/connections/LINKEDIN/initiate", **auth_headers)
@@ -62,8 +62,8 @@ def test_initiate_replaces_existing_row_for_same_toolkit(auth_headers):
 
 def test_refresh_flips_to_active_when_composio_reports_active(auth_headers):
     Connection.objects.create(toolkit="LINKEDIN", status="pending", composio_conn_id="conn_abc")
-    with patch("noctua.core.api.ComposioClient") as Client_cls:
-        Client_cls.return_value.fetch_connection_status.return_value = "ACTIVE"
+    with patch("noctua.core.api.get_client") as get_client:
+        get_client.return_value.fetch_connection_status.return_value = "ACTIVE"
         r = Client().post("/api/connections/LINKEDIN/refresh", **auth_headers)
     assert r.status_code == 200
     row = Connection.objects.get(toolkit="LINKEDIN")
@@ -73,8 +73,8 @@ def test_refresh_flips_to_active_when_composio_reports_active(auth_headers):
 
 def test_refresh_keeps_pending_when_composio_not_yet_active(auth_headers):
     Connection.objects.create(toolkit="LINKEDIN", status="pending", composio_conn_id="conn_abc")
-    with patch("noctua.core.api.ComposioClient") as Client_cls:
-        Client_cls.return_value.fetch_connection_status.return_value = "INITIATED"
+    with patch("noctua.core.api.get_client") as get_client:
+        get_client.return_value.fetch_connection_status.return_value = "INITIATED"
         r = Client().post("/api/connections/LINKEDIN/refresh", **auth_headers)
     assert r.status_code == 200
     row = Connection.objects.get(toolkit="LINKEDIN")

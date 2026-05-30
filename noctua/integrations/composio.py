@@ -137,7 +137,7 @@ class ComposioToolAdapter:
     """
 
     def __init__(self, client: ComposioClient | None = None):
-        self._client = client or ComposioClient()
+        self._client = client or get_client()
         self._entry_cache: dict[str, "ToolEntry"] = {}
 
     def lookup(self, name: str) -> "ToolEntry":
@@ -206,3 +206,26 @@ class ComposioToolAdapter:
             for action in actions:
                 entries.append(self.lookup(f"composio:{toolkit}.{action}"))
         return entries
+
+
+# ---- Singleton factory ------------------------------------------------------
+
+_client_singleton: ComposioClient | None = None
+
+
+def get_client() -> ComposioClient:
+    """Return the process-wide ComposioClient (constructed lazily).
+
+    Use this rather than `ComposioClient()` so the spec cache and SDK
+    instance are shared across all callers in the process.
+    """
+    global _client_singleton
+    if _client_singleton is None:
+        _client_singleton = ComposioClient()
+    return _client_singleton
+
+
+def _reset_client_for_tests() -> None:
+    """Test-only hook to clear the singleton between tests that mock the SDK."""
+    global _client_singleton
+    _client_singleton = None
