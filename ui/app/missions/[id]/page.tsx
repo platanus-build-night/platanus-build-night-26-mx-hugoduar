@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { GitPullRequest, ExternalLink, Radio, Boxes, ListChecks } from "lucide-react";
 import { getMission, getMissionPlans, getMissionSandboxes } from "@/lib/api";
-import type { Plan, Mission, PlanStep, SandboxRun } from "@/lib/types";
+import type { Plan, Mission, PlanStep, SandboxRun, MissionState } from "@/lib/types";
 import SiteHeader from "@/components/SiteHeader";
 import LogPane from "@/components/LogPane";
 import BudgetPanel from "@/components/BudgetPanel";
@@ -8,7 +9,8 @@ import SandboxCard from "@/components/SandboxCard";
 import { toProgressSteps, stepLabel } from "@/lib/toolui-mappers";
 import { ProgressTracker } from "@/components/tool-ui/progress-tracker";
 import { Terminal } from "@/components/tool-ui/terminal";
-import { ApprovalCard } from "@/components/tool-ui/approval-card";
+import NeedsInputCard from "@/components/NeedsInputCard";
+import { MissionStateIcon } from "@/lib/icons";
 
 const STATE_TONE: Record<string, string> = {
   queued: "bg-secondary text-foreground",
@@ -78,8 +80,9 @@ export default async function MissionDetail({
                   href={mission.repo_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-foreground underline-offset-2 hover:underline"
+                  className="inline-flex items-center gap-1 hover:text-foreground underline-offset-2 hover:underline"
                 >
+                  <GitPullRequest className="h-3 w-3" strokeWidth={2.25} />
                   repo
                 </a>
               </>
@@ -91,8 +94,9 @@ export default async function MissionDetail({
                   href={mission.issue_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-foreground underline-offset-2 hover:underline"
+                  className="inline-flex items-center gap-1 hover:text-foreground underline-offset-2 hover:underline"
                 >
+                  <ExternalLink className="h-3 w-3" strokeWidth={2.25} />
                   issue
                 </a>
               </>
@@ -102,13 +106,24 @@ export default async function MissionDetail({
             {mission.goal}
           </h1>
           <div className="flex flex-wrap gap-2 text-xs">
-            <span
-              className={`px-2 py-0.5 rounded-md ${
-                STATE_TONE[mission.state] ?? "bg-secondary"
-              }`}
-            >
-              {mission.state}
-            </span>
+            {(() => {
+              const StateIcon = MissionStateIcon[mission.state as MissionState];
+              return (
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md ${
+                    STATE_TONE[mission.state] ?? "bg-secondary"
+                  }`}
+                >
+                  {StateIcon && (
+                    <StateIcon
+                      className={`h-3 w-3 ${mission.state === "running" ? "animate-spin" : ""}`}
+                      strokeWidth={2.5}
+                    />
+                  )}
+                  {mission.state}
+                </span>
+              );
+            })()}
             {mission.state_reason && (
               <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300">
                 {mission.state_reason}
@@ -117,8 +132,9 @@ export default async function MissionDetail({
             {mission.signal_id && (
               <Link
                 href={`/signals/${mission.signal_id}`}
-                className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 hover:bg-blue-500/30"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30 hover:bg-blue-500/30"
               >
+                <Radio className="h-3 w-3" strokeWidth={2.25} />
                 via signal #{mission.signal_id}
               </Link>
             )}
@@ -129,7 +145,8 @@ export default async function MissionDetail({
 
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm uppercase tracking-wide text-muted-foreground">
+            <h2 className="inline-flex items-center gap-1.5 text-sm uppercase tracking-wide text-muted-foreground">
+              <Boxes className="h-3.5 w-3.5" strokeWidth={2.25} />
               Sandboxes
             </h2>
             {sandboxes.length > 0 && (
@@ -156,17 +173,10 @@ export default async function MissionDetail({
         </section>
 
         {mission.needs_input_prompt && (
-          <ApprovalCard
-            id={`mission-${mission.id}-needs-input`}
-            title="Mission is waiting on you"
-            description={mission.needs_input_prompt}
-            variant="default"
-            confirmLabel="Acknowledged"
-            cancelLabel="Skip"
-            metadata={[
-              { key: "Mission", value: `#${mission.id}` },
-              { key: "Producer", value: mission.producer_key },
-            ]}
+          <NeedsInputCard
+            missionId={mission.id}
+            producerKey={mission.producer_key}
+            prompt={mission.needs_input_prompt}
           />
         )}
 
@@ -184,7 +194,8 @@ export default async function MissionDetail({
           return (
             <section key={p.id} className="space-y-4">
               <div className="flex items-baseline justify-between">
-                <h2 className="text-sm uppercase tracking-wide text-muted-foreground">
+                <h2 className="inline-flex items-center gap-1.5 text-sm uppercase tracking-wide text-muted-foreground">
+                  <ListChecks className="h-3.5 w-3.5" strokeWidth={2.25} />
                   Plan v{p.version}
                 </h2>
                 <span className="text-xs text-muted-foreground">
