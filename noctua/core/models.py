@@ -99,6 +99,7 @@ class Connection(models.Model):
     toolkit = models.CharField(max_length=64, unique=True)
     status = models.CharField(max_length=16, choices=CONNECTION_STATUSES, default="pending")
     composio_conn_id = models.CharField(max_length=128)
+    auth_config_id = models.CharField(max_length=128, blank=True)
     connected_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

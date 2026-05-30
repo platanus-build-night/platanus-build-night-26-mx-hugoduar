@@ -111,10 +111,10 @@ def test_execute_does_not_swallow_non_auth_http_error(settings):
 def test_get_action_spec_caches_per_slug(settings):
     settings.COMPOSIO_API_KEY = "k"
     with patch("noctua.integrations.composio.Composio") as sdk:
-        sdk.return_value.tools.get.return_value = MagicMock(
+        sdk.return_value._client.tools.retrieve.return_value = MagicMock(
             name="LINKEDIN_CREATE_POST",
             description="Create a LinkedIn post",
-            input_schema={"type": "object", "properties": {"text": {"type": "string"}}},
+            input_parameters={"type": "object", "properties": {"text": {"type": "string"}}},
         )
         c = ComposioClient()
         s1 = c.get_action_spec("LINKEDIN_CREATE_POST")
@@ -122,21 +122,56 @@ def test_get_action_spec_caches_per_slug(settings):
         assert isinstance(s1, ActionSpec)
         assert s1.input_schema == {"type": "object", "properties": {"text": {"type": "string"}}}
         # Cached — SDK called only once
-        sdk.return_value.tools.get.assert_called_once()
+        sdk.return_value._client.tools.retrieve.assert_called_once_with(tool_slug="LINKEDIN_CREATE_POST")
         assert s1 is s2
 
 
-def test_initiate_connection_returns_redirect_url_and_id(settings):
+def test_initiate_connection_uses_existing_auth_config(settings):
     settings.COMPOSIO_API_KEY = "k"
     with patch("noctua.integrations.composio.Composio") as sdk:
-        sdk.return_value.connected_accounts.initiate.return_value = MagicMock(
-            redirect_url="https://oauth.example/x", id="conn_abc"
+        sdk.return_value.auth_configs.list.return_value = MagicMock(
+            items=[MagicMock(id="ac_existing")],
+        )
+        sdk.return_value.connected_accounts.link.return_value = MagicMock(
+            redirect_url="https://oauth.example/x", id="conn_abc",
         )
         c = ComposioClient()
         r = c.initiate_connection(toolkit="LINKEDIN", user_id="u")
-        assert isinstance(r, ConnectionInit)
         assert r.redirect_url == "https://oauth.example/x"
         assert r.composio_conn_id == "conn_abc"
+        assert r.auth_config_id == "ac_existing"
+        # link must be called with user_id + auth_config_id, NOT toolkit
+        sdk.return_value.connected_accounts.link.assert_called_once_with(
+            user_id="u", auth_config_id="ac_existing",
+        )
+        sdk.return_value.auth_configs.create.assert_not_called()
+
+
+def test_initiate_connection_creates_managed_auth_config_when_none_exists(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        sdk.return_value.auth_configs.list.return_value = MagicMock(items=[])
+        sdk.return_value.auth_configs.create.return_value = MagicMock(id="ac_new")
+        sdk.return_value.connected_accounts.link.return_value = MagicMock(
+            redirect_url="https://oauth.example/x", id="conn_abc",
+        )
+        c = ComposioClient()
+        r = c.initiate_connection(toolkit="LINKEDIN", user_id="u")
+        assert r.auth_config_id == "ac_new"
+        sdk.return_value.auth_configs.create.assert_called_once_with(
+            toolkit="LINKEDIN",
+            options={"type": "use_composio_managed_auth"},
+        )
+
+
+def test_initiate_connection_raises_friendly_error_when_managed_auth_unavailable(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        sdk.return_value.auth_configs.list.return_value = MagicMock(items=[])
+        sdk.return_value.auth_configs.create.side_effect = RuntimeError("managed_unavailable")
+        c = ComposioClient()
+        with pytest.raises(RuntimeError, match="No auth config exists for toolkit 'LINKEDIN'"):
+            c.initiate_connection(toolkit="LINKEDIN", user_id="u")
 
 
 def test_fetch_connection_status_returns_status_string(settings):

@@ -38,6 +38,7 @@ class ActionSpec:
 class ConnectionInit:
     redirect_url: str
     composio_conn_id: str
+    auth_config_id: str
 
 
 class ComposioAuthError(Exception):
@@ -103,21 +104,56 @@ class ComposioClient:
     def get_action_spec(self, slug: str) -> ActionSpec:
         if slug in self._spec_cache:
             return self._spec_cache[slug]
-        raw = self._sdk.tools.get(slug=slug)
+        # Use the raw http client so we don't need a user_id (composio.tools.get
+        # is a provider-aware listing call that requires one; we just want the
+        # action's input schema). Returns ToolRetrieveResponse with
+        # `input_parameters` (JSON-schema-ish dict).
+        raw = self._sdk._client.tools.retrieve(tool_slug=slug)
         spec = ActionSpec(
             name=getattr(raw, "name", slug),
             description=getattr(raw, "description", "") or "",
-            input_schema=getattr(raw, "input_schema", {}) or {},
+            input_schema=getattr(raw, "input_parameters", {}) or {},
         )
         self._spec_cache[slug] = spec
         return spec
 
     def initiate_connection(self, *, toolkit: str, user_id: str) -> ConnectionInit:
-        raw = self._sdk.connected_accounts.initiate(toolkit=toolkit, user_id=user_id)
+        # Use connected_accounts.link rather than .initiate: as of 2026-05-08,
+        # Composio retired the legacy initiate endpoint for Composio-managed OAuth
+        # auth configs (which is what we use). link() is the documented replacement
+        # with identical return shape (ConnectionRequest with id, status, redirect_url).
+        auth_config_id = self._resolve_auth_config_id(toolkit)
+        raw = self._sdk.connected_accounts.link(
+            user_id=user_id, auth_config_id=auth_config_id,
+        )
         return ConnectionInit(
             redirect_url=getattr(raw, "redirect_url", "") or "",
             composio_conn_id=getattr(raw, "id", "") or "",
+            auth_config_id=auth_config_id,
         )
+
+    def _resolve_auth_config_id(self, toolkit: str) -> str:
+        """Return an auth_config_id for the toolkit, creating a Composio-managed
+        one on first use if none exists. Re-uses any active auth config the
+        operator already created in the Composio dashboard.
+        """
+        existing = self._sdk.auth_configs.list(toolkit_slug=toolkit)
+        items = getattr(existing, "items", None) or []
+        if items:
+            return items[0].id
+        try:
+            created = self._sdk.auth_configs.create(
+                toolkit=toolkit,
+                options={"type": "use_composio_managed_auth"},
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"No auth config exists for toolkit {toolkit!r} and Composio "
+                f"refused to create a managed one ({type(e).__name__}: {e}). "
+                f"Create a custom auth config in the Composio dashboard "
+                f"(https://platform.composio.dev) and retry."
+            ) from e
+        return created.id
 
     def fetch_connection_status(self, composio_conn_id: str) -> str:
         raw = self._sdk.connected_accounts.get(composio_conn_id)

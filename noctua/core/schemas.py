@@ -65,6 +65,7 @@ class ConnectionOut(Schema):
     toolkit: str
     status: str
     composio_conn_id: str
+    auth_config_id: str = ""
     connected_at: str | None = None
     last_error: str = ""
 
@@ -73,6 +74,7 @@ class ConnectionInitiateOut(Schema):
     toolkit: str
     redirect_url: str
     composio_conn_id: str
+    auth_config_id: str = ""
     status: str
 
 

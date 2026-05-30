@@ -32,7 +32,9 @@ def test_initiate_creates_pending_row_and_returns_oauth_url(auth_headers, settin
     settings.COMPOSIO_USER_ID = "noctua_default"
     with patch("noctua.core.api.get_client") as get_client:
         get_client.return_value.initiate_connection.return_value = MagicMock(
-            redirect_url="https://oauth.example/x", composio_conn_id="conn_new"
+            redirect_url="https://oauth.example/x",
+            composio_conn_id="conn_new",
+            auth_config_id="ac_new",
         )
         r = Client().post("/api/connections/LINKEDIN/initiate", **auth_headers)
     assert r.status_code == 201
@@ -50,7 +52,9 @@ def test_initiate_replaces_existing_row_for_same_toolkit(auth_headers):
     Connection.objects.create(toolkit="LINKEDIN", status="expired", composio_conn_id="old")
     with patch("noctua.core.api.get_client") as get_client:
         get_client.return_value.initiate_connection.return_value = MagicMock(
-            redirect_url="https://oauth.example/x", composio_conn_id="conn_new"
+            redirect_url="https://oauth.example/x",
+            composio_conn_id="conn_new",
+            auth_config_id="ac_new",
         )
         r = Client().post("/api/connections/LINKEDIN/initiate", **auth_headers)
     assert r.status_code == 201

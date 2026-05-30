@@ -736,6 +736,7 @@ def _serialize_connection(c: Connection) -> dict:
         "toolkit": c.toolkit,
         "status": c.status,
         "composio_conn_id": c.composio_conn_id,
+        "auth_config_id": c.auth_config_id,
         "connected_at": c.connected_at.isoformat() if c.connected_at else None,
         "last_error": c.last_error,
     }
@@ -756,6 +757,7 @@ def initiate_connection(request, toolkit: str):
         defaults={
             "status": "pending",
             "composio_conn_id": init.composio_conn_id,
+            "auth_config_id": init.auth_config_id,
             "last_error": "",
             "connected_at": None,
         },
@@ -764,6 +766,7 @@ def initiate_connection(request, toolkit: str):
         "toolkit": obj.toolkit,
         "redirect_url": init.redirect_url,
         "composio_conn_id": obj.composio_conn_id,
+        "auth_config_id": obj.auth_config_id,
         "status": obj.status,
     }
 
