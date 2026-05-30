@@ -34,6 +34,29 @@ One vertical end-to-end:
 - **Review UI:** one Next.js page with tabs per producer kind. Approve → `gh pr ready`.
 - **Stub producers** (social post, clinical analysis, diagnostic) appear as tabs with canned artifacts so the multi-domain thesis is visible from minute one.
 
+## Architecture
+
+```
+┌───────────────────────────────┐    HTTP        ┌─────────────────────┐
+│       Next.js Review UI       │ ──────────── ► │  Django Ninja API   │
+│   /queue · detail · rubrics   │               │   + Postgres        │
+└───────────────────────────────┘               └──────────┬──────────┘
+                                                            │ enqueue
+                                                            ▼
+                                            ┌──────────────────────────┐
+                                            │  Celery worker (Redis)   │
+                                            │  ┌────────────────────┐  │
+                                            │  │ Planner (Claude)   │  │
+                                            │  │ Executor           │  │
+                                            │  │ Budget enforcer    │  │
+                                            │  └─────┬──────────────┘  │
+                                            └────────┼─────────────────┘
+                                              ┌──────▼─────┬─────────┐
+                                              │  Sandbox   │ Tools + │
+                                              │  (Docker)  │ Fabricator│
+                                              └────────────┴─────────┘
+```
+
 ## Stack
 
 | Layer | Choice |
@@ -45,27 +68,44 @@ One vertical end-to-end:
 | Review UI | Next.js + Tailwind |
 | Git ops | `gh` CLI shelled out |
 
-## Repo layout
+## Run it yourself
 
-```
-.
-├── build-night-project.json     # judging metadata
-├── project-logo.png
-├── docs/
-│   ├── planning/
-│   │   ├── PRD.md               # full product vision
-│   │   └── HACKATHON_MVP.md     # scoped MVP + build order
-│   └── superpowers/
-│       └── specs/
-│           └── 2026-05-29-noctua-mvp-design.md   # design spec (the buildable thing)
-└── (code lands here next)
+Prereqs: Docker (Desktop or Colima), Python 3.12+, Node 20+, `gh` CLI, an Anthropic API key.
+
+```bash
+# 1. Bring up the stack
+cp .env.example .env
+# edit .env: set ANTHROPIC_API_KEY, NOCTUA_API_TOKEN (any random string), GITHUB_TOKEN
+make up           # postgres + redis via docker-compose
+make migrate      # apply Django migrations
+make seed         # seed Producer rows
+
+# 2. Run the API + worker (two terminals)
+make api          # Django Ninja API on :8000
+make worker       # Celery worker (in another terminal)
+
+# 3. Run the Review UI (third terminal)
+cd ui && cp .env.local.example .env.local
+# edit .env.local: set NEXT_PUBLIC_NOCTUA_TOKEN to the same NOCTUA_API_TOKEN
+npm install && npm run dev
+
+# 4. Fire a mission
+export NOCTUA_API_TOKEN=...  # same as in .env
+export NOCTUA_API_URL=http://localhost:8000
+noctua run \
+  --repo https://github.com/hugoduar/noctua-demo-app \
+  --issue https://github.com/hugoduar/noctua-demo-app/issues/1 \
+  --goal "Add /healthz endpoint returning {ok: true}"
+
+# 5. Open http://localhost:3000/queue and review the result
 ```
 
 ## Read first
 
-- **[Design spec](./docs/superpowers/specs/2026-05-29-noctua-mvp-design.md)** — the source of truth for what we're building this weekend.
-- **[PRD](./docs/planning/PRD.md)** — full vision, principles, all four personas, post-hackathon north star.
-- **[Hackathon MVP scope](./docs/planning/HACKATHON_MVP.md)** — feature list, build order, demo script.
+- **[Design spec](./docs/superpowers/specs/2026-05-29-noctua-mvp-design.md)** — the buildable design, the source of truth.
+- **[Implementation plan](./docs/superpowers/plans/2026-05-29-noctua-mvp.md)** — task-by-task build with tests, code, and commits.
+- **[PRD](./docs/planning/PRD.md)** — full product vision, principles, multi-domain personas.
+- **[Hackathon MVP scope](./docs/planning/HACKATHON_MVP.md)** — feature list and dependency order.
 
 ## What this is *not*
 
