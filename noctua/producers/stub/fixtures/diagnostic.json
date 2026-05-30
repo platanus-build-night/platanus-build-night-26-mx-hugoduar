@@ -1,0 +1,5 @@
+{
+  "uri": "report://diagnostic/ijkl",
+  "preview": {"title": "VIN 1HGBH41JX… brake wear advisory", "snippet": "Replace pads within 1500mi..."},
+  "validation": {"telematics_signals": 3}
+}

@@ -1,0 +1,5 @@
+{
+  "uri": "report://clinical/efgh",
+  "preview": {"title": "Cohort A vs B significance summary", "snippet": "p=0.03 with caveats..."},
+  "validation": {"replication": "ok"}
+}

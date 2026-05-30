@@ -1,0 +1,5 @@
+{
+  "uri": "draft://social/abcd",
+  "preview": {"title": "Launch announcement", "snippet": "Today we shipped..."},
+  "validation": {"tone_check": "ok", "char_count": 198}
+}
