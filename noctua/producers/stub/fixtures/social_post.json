@@ -1,5 +1,26 @@
-{
-  "uri": "draft://social/abcd",
-  "preview": {"title": "Launch announcement", "snippet": "Today we shipped..."},
-  "validation": {"tone_check": "ok", "char_count": 198}
-}
+[
+  {
+    "slug": "launch-announcement",
+    "uri": "draft://social/launch-announcement",
+    "preview": {"title": "Launch announcement", "snippet": "Today we shipped Noctua v0.3 — overnight tool fabrication is now in beta."},
+    "validation": {"tone_check": "ok", "char_count": 198, "hashtags": ["#shipit", "#ai"]}
+  },
+  {
+    "slug": "weekly-recap",
+    "uri": "draft://social/weekly-recap",
+    "preview": {"title": "Weekly recap thread", "snippet": "🧵 5 things we shipped this week, ranked by surprise factor"},
+    "validation": {"tone_check": "ok", "char_count": 84, "thread_length": 5}
+  },
+  {
+    "slug": "customer-story",
+    "uri": "draft://social/customer-story",
+    "preview": {"title": "Customer spotlight: Acme Logistics", "snippet": "How Acme cut diagnostic cycle time from 4h to 22 min using Noctua's overnight runs."},
+    "validation": {"tone_check": "warm", "char_count": 234, "needs_legal_review": false}
+  },
+  {
+    "slug": "feature-flag-deep-dive",
+    "uri": "draft://social/feature-flag-deep-dive",
+    "preview": {"title": "Engineering blog teaser", "snippet": "Why we picked Postgres-backed task queues for a job runner that wakes up at 3 AM."},
+    "validation": {"tone_check": "ok", "char_count": 156, "links": 1}
+  }
+]

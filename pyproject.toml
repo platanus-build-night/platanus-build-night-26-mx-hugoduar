@@ -33,6 +33,11 @@ pr = "noctua.producers.pr:PRProducer"
 social_post = "noctua.producers.stub:SocialPostStub"
 clinical_analysis = "noctua.producers.stub:ClinicalAnalysisStub"
 diagnostic = "noctua.producers.stub:DiagnosticStub"
+cad = "noctua.producers.stub:CADStub"
+tool_demo = "noctua.producers.stub:ToolStub"
+
+[tool.setuptools.packages.find]
+include = ["noctua*"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "noctua.settings"

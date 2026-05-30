@@ -7,6 +7,8 @@ SEED = [
     ("social_post", "social_post", "noctua/producers/stub/social_post_rubric.md"),
     ("clinical_analysis", "analysis", "noctua/producers/stub/clinical_rubric.md"),
     ("diagnostic", "diagnostic", "noctua/producers/stub/diagnostic_rubric.md"),
+    ("cad", "cad", "noctua/producers/stub/cad_rubric.md"),
+    ("tool_demo", "tool", "noctua/producers/stub/tool_rubric.md"),
 ]
 
 class Command(BaseCommand):
