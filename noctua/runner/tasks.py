@@ -16,6 +16,30 @@ def run_mission(mission_id: int):
     m.state = "running"
     m.started_at = m.started_at or now()
     m.save(update_fields=["state", "started_at"])
+
+    producer = get_producer(m.producer_key)
+
+    # Content-only producers (social, clinical, diagnostic, cad) don't need
+    # a sandbox, planner, or executor — they're a single Claude call wrapped
+    # in finalize().
+    if getattr(producer, "content_only", False):
+        try:
+            producer.finalize(m, sandbox=None)
+            m.state = "succeeded"
+        except Exception as e:
+            m.state = "failed"
+            m.state_reason = f"{type(e).__name__}: {e}"
+        finally:
+            m.finished_at = now()
+            m.save(update_fields=["state", "state_reason", "finished_at"])
+            from noctua.runner.archive import archive_mission
+            try:
+                archive_mission(m.id)
+            except Exception:
+                pass
+        return mission_id
+
+    # ---- existing full lifecycle for PR producer (sandbox + planner + executor) ----
     log_dir = Path(settings.NOCTUA_ARCHIVE_DIR) / str(m.id)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = str(log_dir / "sandbox.log")
@@ -24,7 +48,6 @@ def run_mission(mission_id: int):
         sandbox.boot(image="python:3.12-slim", repo_url=m.repo_url or None)
         plan, tokens = plan_for_mission(m)
         increment_spent(m.id, tokens=tokens)
-        producer = get_producer(m.producer_key)
         try:
             execute_plan(m, plan, sandbox, producer=producer)
         except StoppedByBudget as e:

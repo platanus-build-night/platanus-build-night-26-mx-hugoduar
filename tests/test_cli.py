@@ -14,4 +14,5 @@ def test_cli_run_posts_mission(mocker):
     ], env={"NOCTUA_API_URL": "http://localhost:8000", "NOCTUA_API_TOKEN": "t"})
     assert result.exit_code == 0
     assert "mission 7 queued" in result.output.lower()
+    assert "pr" in result.output.lower()
     fake_post.assert_called_once()

@@ -9,21 +9,31 @@ def cli():
 
 
 @cli.command()
-@click.option("--repo", required=True, help="GitHub repo URL")
-@click.option("--issue", required=True, help="GitHub issue URL")
-@click.option("--goal", default=None, help="Override mission goal (defaults to issue title)")
-@click.option("--producer", default="pr")
+@click.option("--repo", default="", help="GitHub repo URL (required for PR missions)")
+@click.option("--issue", default="", help="GitHub issue URL (required for PR missions)")
+@click.option("--goal", required=True, help="Mission goal — what should Noctua produce?")
+@click.option("--producer", default="pr", show_default=True,
+              type=click.Choice(["pr", "social_post", "clinical_analysis", "diagnostic", "cad"], case_sensitive=False),
+              help="Which producer should run this mission.")
 def run(repo, issue, goal, producer):
     """Queue a mission."""
+    if producer == "pr" and not repo:
+        raise click.UsageError("--repo is required for PR missions.")
+
     api_url = os.environ.get("NOCTUA_API_URL", "http://localhost:8000")
     token = os.environ.get("NOCTUA_API_TOKEN", "")
     payload = {
-        "goal": goal or f"Resolve {issue}",
+        "goal": goal,
         "producer_key": producer,
         "repo_url": repo,
         "issue_url": issue,
     }
-    r = httpx.post(f"{api_url}/api/missions", json=payload, headers={"Authorization": f"Bearer {token}"})
+    r = httpx.post(
+        f"{api_url}/api/missions",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
     r.raise_for_status()
     body = r.json()
-    click.echo(f"Mission {body['id']} queued.")
+    click.echo(f"Mission {body['id']} queued ({producer}).")
