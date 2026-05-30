@@ -2,15 +2,16 @@ import { getQueue } from "@/lib/api";
 import TabBar from "@/components/TabBar";
 import ArtifactCard from "@/components/ArtifactCard";
 import SiteHeader from "@/components/SiteHeader";
+import { ArtifactKindIcon } from "@/lib/icons";
 import type { Artifact, ArtifactKind } from "@/lib/types";
 
-const TABS: { key: ArtifactKind; label: string }[] = [
-  { key: "pr", label: "Code" },
-  { key: "tool", label: "Tools" },
-  { key: "social_post", label: "Social" },
-  { key: "analysis", label: "Clinical" },
-  { key: "diagnostic", label: "Diagnostic" },
-  { key: "cad", label: "CAD" },
+const TABS: { key: ArtifactKind; label: string; icon: typeof ArtifactKindIcon[ArtifactKind] }[] = [
+  { key: "pr", label: "Code", icon: ArtifactKindIcon.pr },
+  { key: "tool", label: "Tools", icon: ArtifactKindIcon.tool },
+  { key: "social_post", label: "Social", icon: ArtifactKindIcon.social_post },
+  { key: "analysis", label: "Clinical", icon: ArtifactKindIcon.analysis },
+  { key: "diagnostic", label: "Diagnostic", icon: ArtifactKindIcon.diagnostic },
+  { key: "cad", label: "CAD", icon: ArtifactKindIcon.cad },
 ];
 
 export default async function QueuePage({

@@ -4,6 +4,7 @@ import type { Artifact, ArtifactKind } from "@/lib/types";
 import { artifactTitle, artifactSummary } from "@/lib/toolui-mappers";
 import { ArtifactKindIcon, ArtifactKindLabel } from "@/lib/icons";
 import CreatePRButton from "@/components/CreatePRButton";
+import GitHubLinkBadge from "@/components/GitHubLinkBadge";
 
 const KIND_TONE: Record<string, string> = {
   pr: "bg-violet-500/15 text-violet-300 ring-violet-500/30",
@@ -52,17 +53,7 @@ export default function ArtifactCard({ artifact: a }: { artifact: Artifact }) {
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           {isPrWithoutUri && <CreatePRButton artifactId={a.id} />}
-          {isPrWithUri && (
-            <a
-              href={a.uri}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-violet-300 ring-1 ring-violet-500/30 hover:bg-violet-500/20 transition-colors"
-            >
-              View on GitHub ↗
-            </a>
-          )}
+          {isPrWithUri && <GitHubLinkBadge href={a.uri} />}
           <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
         </div>
       </div>

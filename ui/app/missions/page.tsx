@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { listMissions } from "@/lib/api";
-import type { MissionListItem, MissionState } from "@/lib/types";
+import type { MissionListItem } from "@/lib/types";
+import SiteHeader from "@/components/SiteHeader";
+import { DataTable } from "@/components/tool-ui/data-table";
+import { StatsDisplay } from "@/components/tool-ui/stats-display";
+import { fleetStats } from "@/lib/toolui-mappers";
+import type {
+  Column,
+  DataTableRowData,
+} from "@/components/tool-ui/data-table";
 
 const STATE_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -12,66 +20,151 @@ const STATE_FILTERS: { key: string; label: string }[] = [
   { key: "stopped", label: "Stopped" },
 ];
 
-const STATE_COLOR: Record<MissionState, string> = {
-  queued: "bg-zinc-700 text-zinc-200",
-  running: "bg-blue-700 text-blue-100",
-  succeeded: "bg-emerald-700 text-emerald-100",
-  failed: "bg-rose-800 text-rose-100",
-  stopped: "bg-amber-700 text-amber-100",
-  needs_input: "bg-fuchsia-700 text-fuchsia-100",
+type MissionRow = DataTableRowData & {
+  id: number;
+  state: string;
+  producer: string;
+  goal: string;
+  tokens: number;
+  tools: number;
+  finished: string;
+  href: string;
+  reason: string;
 };
 
-function fmt(ts?: string | null) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString();
-}
+const COLUMNS: Column<MissionRow>[] = [
+  {
+    key: "id",
+    label: "#",
+    width: "64px",
+    align: "right",
+    format: { kind: "number" },
+  },
+  {
+    key: "state",
+    label: "State",
+    format: {
+      kind: "status",
+      statusMap: {
+        queued: { tone: "neutral", label: "queued" },
+        running: { tone: "info", label: "running" },
+        succeeded: { tone: "success", label: "succeeded" },
+        failed: { tone: "danger", label: "failed" },
+        stopped: { tone: "warning", label: "stopped" },
+        needs_input: { tone: "warning", label: "needs input" },
+      },
+    },
+  },
+  {
+    key: "goal",
+    label: "Goal",
+    truncate: true,
+    priority: "primary",
+    format: { kind: "link", hrefKey: "href" },
+  },
+  {
+    key: "producer",
+    label: "Producer",
+    hideOnMobile: true,
+  },
+  {
+    key: "tokens",
+    label: "Tokens",
+    align: "right",
+    format: { kind: "number", compact: true },
+    hideOnMobile: true,
+  },
+  {
+    key: "tools",
+    label: "Tools",
+    align: "right",
+    format: { kind: "number" },
+    hideOnMobile: true,
+  },
+  {
+    key: "reason",
+    label: "Stop reason",
+    truncate: true,
+    hideOnMobile: true,
+  },
+  {
+    key: "finished",
+    label: "Last seen",
+    align: "right",
+    format: { kind: "date", dateFormat: "relative" },
+    hideOnMobile: true,
+  },
+];
 
-export default async function MissionsPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
+export default async function MissionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ state?: string }>;
+}) {
   const sp = await searchParams;
   const state = sp.state ?? "";
   const missions: MissionListItem[] = await listMissions(state || undefined);
+
+  const stats = fleetStats(missions);
+  const rows: MissionRow[] = missions.map(m => ({
+    id: m.id,
+    state: m.state,
+    producer: m.producer_key,
+    goal: m.goal,
+    tokens: m.spent?.tokens ?? 0,
+    tools: m.spent?.tool_calls ?? 0,
+    finished: m.finished_at ?? m.created_at,
+    href: `/missions/${m.id}`,
+    reason: m.state_reason ?? "",
+  }));
+
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8">
-      <header className="mb-6 flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Missions</h1>
-          <p className="text-sm text-zinc-400">Everything Noctua has tried, not just the ones with artifacts.</p>
-        </div>
-        <Link href="/queue" className="text-sm text-zinc-400 hover:text-zinc-200">Queue →</Link>
-      </header>
-      <nav className="flex gap-2 border-b border-zinc-800 mb-6">
-        {STATE_FILTERS.map(f => (
-          <Link key={f.key || "all"} href={f.key ? `/missions?state=${f.key}` : "/missions"}
-            className={`px-4 py-2 text-sm rounded-t ${f.key === state ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}>
-            {f.label}
-          </Link>
-        ))}
-      </nav>
-      <div className="space-y-2">
-        {missions.length === 0 && <p className="text-zinc-500 text-sm">No missions in this filter.</p>}
-        {missions.map(m => (
-          <Link key={m.id} href={`/missions/${m.id}`}
-            className="block rounded border border-zinc-800 hover:border-zinc-600 bg-zinc-900 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-zinc-500">#{m.id}</span>
-                  <span className={`px-2 py-0.5 rounded ${STATE_COLOR[m.state] ?? "bg-zinc-700"}`}>{m.state}</span>
-                  <span className="text-zinc-500">{m.producer_key}</span>
-                </div>
-                <div className="font-medium mt-1 truncate">{m.goal}</div>
-                {m.state_reason && <div className="text-xs text-rose-300 mt-1">{m.state_reason}</div>}
-              </div>
-              <div className="text-right text-xs text-zinc-500 shrink-0">
-                <div>{fmt(m.finished_at ?? m.created_at)}</div>
-                <div className="mt-1 font-mono">
-                  {(m.spent?.tokens ?? 0)} tok · {(m.spent?.tool_calls ?? 0)} tools
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </main>
+    <>
+      <SiteHeader active="missions" />
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Missions</h1>
+          <p className="text-sm text-muted-foreground">
+            Everything Noctua has tried — not just the ones with artifacts.
+          </p>
+        </header>
+
+        <StatsDisplay
+          id="fleet-stats"
+          title="Fleet"
+          description={state ? `Filtered: ${state.replace(/_/g, " ")}` : "All missions"}
+          stats={stats}
+        />
+
+        <nav className="flex flex-wrap gap-1 border-b border-border">
+          {STATE_FILTERS.map(f => {
+            const active = f.key === state;
+            return (
+              <Link
+                key={f.key || "all"}
+                href={f.key ? `/missions?state=${f.key}` : "/missions"}
+                className={
+                  "px-3 py-1.5 text-sm rounded-t-md transition-colors " +
+                  (active
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {f.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <DataTable
+          id="missions-table"
+          columns={COLUMNS}
+          data={rows}
+          rowIdKey="id"
+          defaultSort={{ by: "finished", direction: "desc" }}
+          emptyMessage="No missions in this filter."
+        />
+      </main>
+    </>
   );
 }

@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { listSandboxes } from "@/lib/api";
-import type { SandboxRun, SandboxState } from "@/lib/types";
+import type { SandboxRun } from "@/lib/types";
+import SiteHeader from "@/components/SiteHeader";
+import SandboxCard from "@/components/SandboxCard";
+import { StatsDisplay } from "@/components/tool-ui/stats-display";
+import type { StatItem } from "@/components/tool-ui/stats-display";
 
 const STATE_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -10,64 +14,87 @@ const STATE_FILTERS: { key: string; label: string }[] = [
   { key: "torn_down", label: "Torn down" },
 ];
 
-const STATE_COLOR: Record<SandboxState, string> = {
-  booting: "bg-blue-700 text-blue-100",
-  ready: "bg-emerald-700 text-emerald-100",
-  exited: "bg-amber-700 text-amber-100",
-  torn_down: "bg-zinc-700 text-zinc-200",
-};
-
-function fmt(ts?: string | null) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString();
+function fleetStats(sandboxes: SandboxRun[]): StatItem[] {
+  const counts: Record<string, number> = {};
+  let live = 0;
+  for (const s of sandboxes) {
+    counts[s.state] = (counts[s.state] ?? 0) + 1;
+    if (s.state === "booting" || s.state === "ready") live += 1;
+  }
+  return [
+    { key: "total", label: "Total", value: sandboxes.length, format: { kind: "number" } },
+    { key: "live", label: "Live", value: live, format: { kind: "number" } },
+    { key: "ready", label: "Ready", value: counts.ready ?? 0, format: { kind: "number" } },
+    { key: "exited", label: "Exited", value: counts.exited ?? 0, format: { kind: "number" } },
+    { key: "torn_down", label: "Torn down", value: counts.torn_down ?? 0, format: { kind: "number" } },
+  ];
 }
 
-export default async function SandboxesPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
+export default async function SandboxesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ state?: string }>;
+}) {
   const sp = await searchParams;
   const state = sp.state ?? "";
   const sandboxes: SandboxRun[] = await listSandboxes(state || undefined);
+  const stats = fleetStats(sandboxes);
+
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8">
-      <header className="mb-6 flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Sandboxes</h1>
-          <p className="text-sm text-zinc-400">Every Docker container Noctua has booted for a mission.</p>
-        </div>
-        <div className="flex gap-3 text-sm">
-          <Link href="/missions" className="text-zinc-400 hover:text-zinc-200">Missions</Link>
-          <Link href="/queue" className="text-zinc-400 hover:text-zinc-200">Queue</Link>
-        </div>
-      </header>
-      <nav className="flex gap-2 border-b border-zinc-800 mb-6">
-        {STATE_FILTERS.map(f => (
-          <Link key={f.key || "all"} href={f.key ? `/sandboxes?state=${f.key}` : "/sandboxes"}
-            className={`px-4 py-2 text-sm rounded-t ${f.key === state ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}>
-            {f.label}
-          </Link>
-        ))}
-      </nav>
-      <div className="space-y-2">
-        {sandboxes.length === 0 && <p className="text-zinc-500 text-sm">No sandboxes in this filter.</p>}
-        {sandboxes.map(s => (
-          <Link key={s.id} href={`/missions/${s.mission_id}`} className="block rounded border border-zinc-800 hover:border-zinc-600 bg-zinc-900 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 font-mono text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-zinc-500">#{s.id}</span>
-                  <span className={`px-2 py-0.5 rounded ${STATE_COLOR[s.state] ?? "bg-zinc-700"}`}>{s.state}</span>
-                  <span className="text-zinc-500">mission #{s.mission_id}</span>
-                </div>
-                <div className="mt-1 text-zinc-300 truncate">{s.image_ref}</div>
-                {s.container_id && <div className="text-zinc-500 text-[10px]">container {s.container_id.slice(0, 12)}</div>}
-              </div>
-              <div className="text-right text-xs text-zinc-500 shrink-0">
-                <div>{fmt(s.started_at)}</div>
-                {s.finished_at && <div className="mt-1">&rarr; {fmt(s.finished_at)}</div>}
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </main>
+    <>
+      <SiteHeader active="sandboxes" />
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Sandboxes</h1>
+          <p className="text-sm text-muted-foreground">
+            Every Docker container Noctua booted to run a mission — live, exited, or torn down.
+          </p>
+        </header>
+
+        <StatsDisplay
+          id="sandbox-fleet"
+          title="Fleet"
+          description={state ? `Filtered: ${state.replace(/_/g, " ")}` : "All sandboxes"}
+          stats={stats}
+        />
+
+        <nav className="flex flex-wrap gap-1 border-b border-border">
+          {STATE_FILTERS.map(f => {
+            const active = f.key === state;
+            return (
+              <Link
+                key={f.key || "all"}
+                href={f.key ? `/sandboxes?state=${f.key}` : "/sandboxes"}
+                className={
+                  "px-3 py-1.5 text-sm rounded-t-md transition-colors " +
+                  (active
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+              >
+                {f.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {sandboxes.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-12 text-center space-y-1">
+            <p className="text-sm text-foreground">No sandboxes here.</p>
+            <p className="text-xs text-muted-foreground">
+              {state
+                ? "Try a different filter."
+                : "When a mission boots a container, it lands here."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {sandboxes.map(s => (
+              <SandboxCard key={s.id} sandbox={s} />
+            ))}
+          </div>
+        )}
+      </main>
+    </>
   );
 }
