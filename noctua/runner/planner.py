@@ -1,9 +1,32 @@
 import json
+import re
 from pathlib import Path
 from noctua.core.models import Mission, Plan, Producer
 from noctua.runner.llm import call_with_cache, PLANNER_MODEL
 
 PLAN_PROMPT = Path(__file__).parent / "prompts" / "plan.md"
+
+# Valid JSON string escapes per RFC 8259 §7: " \ / b f n r t uXXXX
+_VALID_JSON_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _parse_plan_json(text: str) -> dict:
+    """Parse Claude's plan output, repairing common escape mistakes.
+
+    Claude sometimes emits stray single backslashes (e.g. inside regex
+    literals or shell paths). Strict `json.loads` rejects them. We try
+    strict first, then double up any backslash that's not a valid JSON
+    escape and retry. If both fail, the original exception is raised.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.split("\n", 1)[1] if text.startswith("json") else text
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        repaired = _VALID_JSON_ESCAPE.sub(r"\\\\", text)
+        return json.loads(repaired)
 
 
 def plan_for_mission(mission: Mission) -> tuple[Plan, int]:
@@ -22,11 +45,7 @@ Producer rubric:
 """
     resp = call_with_cache([{"role": "user", "content": user}], system, PLANNER_MODEL)
     text = resp.content[0].text.strip()
-    # be lenient with code fences
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.split("\n", 1)[1] if text.startswith("json") else text
-    obj = json.loads(text)
+    obj = _parse_plan_json(text)
     next_version = mission.plans.count() + 1
     plan = Plan.objects.create(
         mission=mission,
