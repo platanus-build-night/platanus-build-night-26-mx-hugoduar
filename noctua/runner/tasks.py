@@ -199,24 +199,43 @@ def create_pr_for_artifact(artifact_id: int, overrides: dict | None = None):
         # create branch
         r = sandbox.exec(["bash", "-lc", f"cd /work && git checkout -b {shlex.quote(branch)}"])
         if r.exit_code != 0:
-            raise RuntimeError(f"git checkout -b failed: {r.stderr}")
+            raise RuntimeError(
+                f"git checkout -b failed: exit={r.exit_code} "
+                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+            )
 
-        # write NOCTUA.md
+        # write NOCTUA.md and verify the file made it
         sandbox.write_file("/work/NOCTUA.md", noctua_md.encode())
+        r = sandbox.exec(["bash", "-lc", "ls -la /work/NOCTUA.md && wc -c /work/NOCTUA.md"])
+        if r.exit_code != 0:
+            raise RuntimeError(
+                f"NOCTUA.md write didn't land: exit={r.exit_code} "
+                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+            )
 
-        # commit
+        # commit. Use --allow-empty so missing/duplicate NOCTUA.md doesn't
+        # block PR creation; the goal is opening the PR, not the diff itself.
+        # Capture stdout in the error message — git prints 'nothing to commit'
+        # to stdout, not stderr, so the previous error appeared empty.
         commit_msg = shlex.quote(f"noctua: prepare review for artifact #{artifact_id}")
         r = sandbox.exec([
             "bash", "-lc",
-            f"cd /work && git add -A && git -c user.email=noctua@local -c user.name=Noctua commit -m {commit_msg}"
+            "cd /work && git add -A && "
+            f"git -c user.email=noctua@local -c user.name=Noctua commit --allow-empty -m {commit_msg}"
         ])
         if r.exit_code != 0:
-            raise RuntimeError(f"git commit failed: {r.stderr}")
+            raise RuntimeError(
+                f"git commit failed: exit={r.exit_code} "
+                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+            )
 
         # push
         r = sandbox.exec(["bash", "-lc", "cd /work && git push -u origin HEAD"])
         if r.exit_code != 0:
-            raise RuntimeError(f"git push failed: {r.stderr}")
+            raise RuntimeError(
+                f"git push failed: exit={r.exit_code} "
+                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+            )
 
         # gh pr create
         t = shlex.quote(title)
@@ -227,7 +246,10 @@ def create_pr_for_artifact(artifact_id: int, overrides: dict | None = None):
             f"cd /work && gh pr create --draft --title {t} --body {bo} --base {ba}"
         ])
         if r.exit_code != 0:
-            raise RuntimeError(f"gh pr create failed: {r.stderr}")
+            raise RuntimeError(
+                f"gh pr create failed: exit={r.exit_code} "
+                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+            )
 
         pr_url = r.stdout.strip()
 
