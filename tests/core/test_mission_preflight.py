@@ -43,7 +43,9 @@ def test_create_mission_rejected_when_no_required_toolkit_connected(auth_headers
     assert Mission.objects.count() == 0
 
 
-def test_create_mission_accepted_when_at_least_one_required_toolkit_active(auth_headers):
+def test_create_mission_accepted_when_at_least_one_required_toolkit_active(
+    auth_headers, mocker, django_capture_on_commit_callbacks
+):
     _make_external_producer_in_cache("social_post", ("LINKEDIN", "TWITTER", "BLUESKY"))
     Connection.objects.create(toolkit="LINKEDIN", status="active", composio_conn_id="c1")
     payload = {
@@ -52,14 +54,16 @@ def test_create_mission_accepted_when_at_least_one_required_toolkit_active(auth_
         "inputs": {}, "success_criteria": "", "domain": "social",
         "repo_url": "", "issue_url": "", "auto_act": False,
     }
-    # Patch run_mission so we don't actually fire it during the API test
-    with patch("noctua.runner.tasks.run_mission") as run:
+    # Patch run_mission.delay and capture on_commit callbacks so the deferred
+    # enqueue fires (create_mission uses transaction.on_commit).
+    spy = mocker.patch("noctua.runner.tasks.run_mission.delay")
+    with django_capture_on_commit_callbacks(execute=True):
         r = Client().post("/api/missions",
                           data=json.dumps(payload),
                           content_type="application/json", **auth_headers)
     assert r.status_code == 201
     assert Mission.objects.count() == 1
-    run.delay.assert_called_once()
+    spy.assert_called_once()
 
 
 def test_create_mission_rejected_when_only_expired_connection_present(auth_headers):

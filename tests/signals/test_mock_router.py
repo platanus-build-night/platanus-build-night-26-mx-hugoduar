@@ -80,8 +80,8 @@ def test_mock_endpoint_routes_cad(mocker, django_capture_on_commit_callbacks):
     Connection.objects.create(toolkit="GOOGLEDRIVE", status="active", composio_conn_id="gd-1")
     spy = mocker.patch("noctua.runner.tasks.run_mission.delay")
     c = Client()
-    # transaction.on_commit wraps the enqueue; capture executes callbacks
-    # at the end of the block so spy.delay sees the call.
+    # run_mission.delay is wrapped in transaction.on_commit; use
+    # django_capture_on_commit_callbacks to fire on-commit hooks eagerly.
     with django_capture_on_commit_callbacks(execute=True):
         r = c.post(
             "/api/signals/mock",

@@ -335,6 +335,13 @@ def ingest_sentry_signal(request, body: SentryWebhookIn):
         return 201, _serialize_signal(signal)
 
     # action == 'route'
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
     from noctua.runner.tasks import run_mission
     mission = Mission.objects.create(
         goal=decision.goal,
@@ -404,6 +411,13 @@ def ingest_mock_signal(request, body: MockSignalIn):
         signal.save(update_fields=["routing_status", "routing_reason"])
         return 201, _serialize_signal(signal)
 
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
     from noctua.runner.tasks import run_mission
     mission = Mission.objects.create(
         goal=decision.goal,
@@ -462,6 +476,13 @@ def ingest_feature_request_signal(request, body: FeatureRequestIn):
     if decision.action == "ignore":
         signal.routing_status = "ignored"
         signal.routing_reason = decision.reason
+        signal.save(update_fields=["routing_status", "routing_reason"])
+        return 201, _serialize_signal(signal)
+
+    missing = _check_required_toolkits(decision.producer_key)
+    if missing:
+        signal.routing_status = "failed"
+        signal.routing_reason = f"missing_connections:{','.join(missing)}"
         signal.save(update_fields=["routing_status", "routing_reason"])
         return 201, _serialize_signal(signal)
 
