@@ -36,6 +36,10 @@ def test_producers_toolkits_returns_union_of_required_and_optional(settings):
         required_toolkits = ["NOTION"]
         optional_toolkits = ["GMAIL"]
 
+    # Snapshot the cache (which the API's _warm_producer_cache populated with
+    # real producers) and replace it with only our fakes, then restore on exit.
+    snapshot = dict(preg._cache)
+    preg._cache.clear()
     preg._cache["a"] = A()
     preg._cache["b"] = B()
     try:
@@ -45,5 +49,5 @@ def test_producers_toolkits_returns_union_of_required_and_optional(settings):
         # Only toolkits referenced by producers currently in the cache, deduped, sorted.
         assert sorted(r.json()["toolkits"]) == ["GMAIL", "LINKEDIN", "NOTION", "TWITTER"]
     finally:
-        preg._cache.pop("a", None)
-        preg._cache.pop("b", None)
+        preg._cache.clear()
+        preg._cache.update(snapshot)
