@@ -23,3 +23,27 @@ def test_update_rubric():
     r = c.put("/api/producers/pr/rubric", data={"rubric_md": "new rubric content"}, content_type="application/json", **auth())
     assert r.status_code == 200
     assert Producer.objects.get(key="pr").rubric_md == "new rubric content"
+
+@pytest.mark.django_db
+def test_producers_toolkits_returns_union_of_required_and_optional(settings):
+    settings.NOCTUA_API_TOKEN = "t"
+    from noctua.producers import registry as preg
+
+    class A:
+        required_toolkits = ["LINKEDIN", "TWITTER"]
+        optional_toolkits = []
+    class B:
+        required_toolkits = ["NOTION"]
+        optional_toolkits = ["GMAIL"]
+
+    preg._cache["a"] = A()
+    preg._cache["b"] = B()
+    try:
+        c = Client()
+        r = c.get("/api/producers/toolkits", **auth())
+        assert r.status_code == 200
+        # Only toolkits referenced by producers currently in the cache, deduped, sorted.
+        assert sorted(r.json()["toolkits"]) == ["GMAIL", "LINKEDIN", "NOTION", "TWITTER"]
+    finally:
+        preg._cache.pop("a", None)
+        preg._cache.pop("b", None)

@@ -14,6 +14,19 @@ from noctua.producers.registry import get_producer
 
 api = NinjaAPI(title="Noctua", auth=BearerAuth())
 
+def _warm_producer_cache():
+    """Pre-resolve all registered producers so their manifests are visible to
+    the Connections UI without waiting for the first mission of each kind."""
+    from importlib.metadata import entry_points
+    from noctua.producers.registry import get_producer
+    for ep in entry_points(group="noctua.producers"):
+        try:
+            get_producer(ep.name)
+        except Exception:
+            pass  # producer with broken import — fail soft; will surface elsewhere
+
+_warm_producer_cache()
+
 DEFAULT_BUDGET = {"max_wall_seconds": 1800, "max_tokens": 200_000, "max_tool_calls": 50}
 
 @api.post("/missions", response={201: MissionOut, 400: dict})
@@ -391,6 +404,17 @@ class RubricIn(Schema):
 @api.get("/producers", response=list[ProducerOut])
 def list_producers(request):
     return list(Producer.objects.all())
+
+@api.get("/producers/toolkits")
+def list_producer_toolkits(request):
+    """Union of every required and optional toolkit across producers currently
+    resolvable via the registry cache. Used by the Connections UI."""
+    from noctua.producers import registry as preg
+    toolkits: set[str] = set()
+    for producer in preg._cache.values():
+        toolkits.update(getattr(producer, "required_toolkits", []) or [])
+        toolkits.update(getattr(producer, "optional_toolkits", []) or [])
+    return {"toolkits": sorted(toolkits)}
 
 @api.put("/producers/{key}/rubric", response=ProducerOut)
 def update_rubric(request, key: str, payload: RubricIn):
