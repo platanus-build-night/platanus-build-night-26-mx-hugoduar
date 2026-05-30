@@ -1,5 +1,8 @@
 import shutil
+import time
+from pathlib import Path
 from django.conf import settings
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from ninja import NinjaAPI, Schema
@@ -154,6 +157,67 @@ def update_rubric(request, key: str, payload: RubricIn):
     # also write to disk so it's git-trackable
     paths = {"pr": "noctua/producers/pr/rubric.md"}
     if key in paths:
-        from pathlib import Path
         Path(paths[key]).write_text(payload.rubric_md)
     return p
+
+
+# Terminal mission states (logs stream until any of these)
+_TERMINAL = ("succeeded", "failed", "stopped", "needs_input")
+
+
+@api.get("/missions/{mission_id}/logs", auth=None)
+def stream_mission_logs(request, mission_id: int, token: str = ""):
+    """Server-Sent Events stream of the sandbox log file for this mission.
+
+    Auth is via ?token=... query param (EventSource can't set headers).
+    Streams until the mission reaches a terminal state or 30 min, whichever first.
+    """
+    if not settings.NOCTUA_API_TOKEN or token != settings.NOCTUA_API_TOKEN:
+        return StreamingHttpResponse("event: error\ndata: unauthorized\n\n",
+                                     status=401, content_type="text/event-stream")
+
+    log_path = Path(settings.NOCTUA_ARCHIVE_DIR) / str(mission_id) / "sandbox.log"
+
+    def event_stream():
+        last_pos = 0
+        deadline = time.time() + 1800  # 30 min
+        sent_anything = False
+        # Heartbeat every 15s so proxies don't time us out
+        last_heartbeat = time.time()
+        while time.time() < deadline:
+            if log_path.exists():
+                try:
+                    with open(log_path, "r", errors="replace") as f:
+                        f.seek(last_pos)
+                        chunk = f.read()
+                        if chunk:
+                            for line in chunk.splitlines():
+                                # SSE: each event is `data: <text>\n\n`
+                                yield f"data: {line}\n\n".encode()
+                                sent_anything = True
+                            last_pos = f.tell()
+                except OSError:
+                    pass
+            # Check mission terminal state
+            try:
+                m = Mission.objects.get(id=mission_id)
+                if m.state in _TERMINAL:
+                    if not sent_anything:
+                        yield b"data: (no log written)\n\n"
+                    yield f"event: done\ndata: {m.state}\n\n".encode()
+                    return
+            except Mission.DoesNotExist:
+                yield b"event: error\ndata: mission not found\n\n"
+                return
+            # Heartbeat
+            now_ts = time.time()
+            if now_ts - last_heartbeat > 15:
+                yield b": heartbeat\n\n"  # SSE comment line
+                last_heartbeat = now_ts
+            time.sleep(1)
+        yield b"event: timeout\ndata: 1800s elapsed\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"  # for nginx if ever in front
+    return response

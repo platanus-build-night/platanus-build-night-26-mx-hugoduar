@@ -2,8 +2,10 @@ import io
 import os
 import re
 import tarfile
+import time
 import docker
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 _REPO_URL_RE = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+(\.git)?/?$")
@@ -31,13 +33,41 @@ class ExecResult:
 
 
 class Sandbox:
-    def __init__(self, ttl_seconds: int = 1800):
+    def __init__(self, ttl_seconds: int = 1800, log_path: str | None = None):
         self.client = docker.from_env()
         self.container = None
         self.ttl_seconds = ttl_seconds
+        self.log_path = log_path
+        self._log_file = None
         self.info = SandboxRunInfo()
+        if log_path:
+            self.info.log_path = log_path
+
+    def _open_log(self):
+        """Open the log file lazily for line-buffered append."""
+        if self._log_file is not None or not self.log_path:
+            return
+        try:
+            self._log_file = open(self.log_path, "a", buffering=1)
+        except OSError:
+            pass
+
+    def _log(self, text: str):
+        """Write a timestamped log line. Best-effort — never raises."""
+        if not self.log_path:
+            return
+        try:
+            self._open_log()
+            if self._log_file:
+                ts = datetime.now().strftime("%H:%M:%S")
+                self._log_file.write(f"[{ts}] {text}\n")
+                self._log_file.flush()
+        except OSError:
+            pass
 
     def boot(self, image: str, repo_url: str | None) -> SandboxRunInfo:
+        self._open_log()
+        self._log(f"BOOT image={image} repo={repo_url or '-'}")
         self.client.images.pull(image)  # idempotent
         env = {}
         if os.environ.get("GITHUB_TOKEN"):
@@ -57,6 +87,7 @@ class Sandbox:
         self.info.container_id = self.container.id
         self.info.image_ref = image
         self.info.state = "ready"
+        self._log(f"BOOT_OK container={self.container.id}")
         # Always bootstrap dev tools + git identity so any git command works,
         # regardless of whether the LLM uses the bundled tool or raw bash.
         # gh auth setup-git is gated on GITHUB_TOKEN presence to stay a no-op
@@ -90,17 +121,34 @@ class Sandbox:
         return self.info
 
     def exec(self, cmd: list[str], stdin: str = "", timeout: int = 60) -> ExecResult:
+        cmd_str = " ".join(cmd)
+        if len(cmd_str) > 500:
+            cmd_str = cmd_str[:500] + "…"
+        self._log(f"EXEC {cmd_str}")
         # docker SDK exec doesn't honor stdin easily; for stdin we'd shell-wrap.
         # For MVP we ignore stdin and accept timeout via daemon-side wait.
         result = self.container.exec_run(cmd, demux=True)
         stdout_b, stderr_b = result.output if isinstance(result.output, tuple) else (result.output, None)
-        return ExecResult(
+        exec_result = ExecResult(
             exit_code=result.exit_code,
             stdout=(stdout_b or b"").decode("utf-8", "replace"),
             stderr=(stderr_b or b"").decode("utf-8", "replace"),
         )
+        self._log(f"EXIT {exec_result.exit_code}")
+        # Dump stdout block (clipped to 4000 chars)
+        if exec_result.stdout:
+            stdout_body = exec_result.stdout[:4000]
+            lines = "\n".join(f" {l}" for l in stdout_body.splitlines())
+            self._log(f"STDOUT:\n{lines}")
+        # Dump stderr block (clipped to 4000 chars)
+        if exec_result.stderr:
+            stderr_body = exec_result.stderr[:4000]
+            lines = "\n".join(f" {l}" for l in stderr_body.splitlines())
+            self._log(f"STDERR:\n{lines}")
+        return exec_result
 
     def write_file(self, path: str, content: bytes) -> None:
+        self._log(f"WRITE_FILE {path} ({len(content)} bytes)")
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tar:
             info = tarfile.TarInfo(name=path.lstrip("/"))
@@ -110,6 +158,7 @@ class Sandbox:
         self.container.put_archive("/", buf.read())
 
     def read_file(self, path: str) -> bytes:
+        self._log(f"READ_FILE {path}")
         stream, _ = self.container.get_archive(path)
         buf = io.BytesIO()
         for chunk in stream:
@@ -120,11 +169,14 @@ class Sandbox:
             f = tar.extractfile(member)
             return f.read() if f else b""
 
-    def stream_logs(self):
-        for line in self.container.logs(stream=True, follow=True):
-            yield line.decode("utf-8", "replace")
-
     def teardown(self):
+        self._log("TEARDOWN")
+        try:
+            if self._log_file:
+                self._log_file.close()
+                self._log_file = None
+        except OSError:
+            pass
         if self.container is not None:
             try:
                 self.container.kill()
@@ -140,6 +192,8 @@ class Sandbox:
 
 class NestedSandbox(Sandbox):
     def boot(self, image: str, repo_url: str | None) -> SandboxRunInfo:
+        self._open_log()
+        self._log(f"BOOT image={image} repo={repo_url or '-'}")
         self.client.images.pull(image)
         self.container = self.client.containers.run(
             image,
@@ -155,4 +209,5 @@ class NestedSandbox(Sandbox):
         self.info.container_id = self.container.id
         self.info.image_ref = image
         self.info.state = "ready"
+        self._log(f"BOOT_OK container={self.container.id}")
         return self.info
