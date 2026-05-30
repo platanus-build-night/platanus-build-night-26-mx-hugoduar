@@ -2,6 +2,7 @@ import shutil
 import time
 from pathlib import Path
 from django.conf import settings
+from django.db import transaction
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -78,7 +79,7 @@ def create_mission(request, payload: MissionCreate):
         budget=budget,
         auto_act=payload.auto_act,
     )
-    run_mission.delay(m.id)
+    transaction.on_commit(lambda: run_mission.delay(m.id))
     # Refresh to get the latest state from the database (especially when running Celery tasks eagerly in tests)
     m.refresh_from_db()
     return 201, m
@@ -156,7 +157,7 @@ def respond_to_mission(request, mission_id: int, payload: RespondIn):
     m.needs_input_response = payload.response
     m.state = "queued"
     m.save(update_fields=["needs_input_response", "state"])
-    run_mission.delay(m.id)
+    transaction.on_commit(lambda: run_mission.delay(m.id))
     return m
 
 @api.get("/queue", response=list[ArtifactOut])
@@ -347,7 +348,7 @@ def ingest_sentry_signal(request, body: SentryWebhookIn):
     signal.routing_status = "routed"
     signal.routing_reason = decision.reason
     signal.save(update_fields=["mission", "routing_status", "routing_reason"])
-    run_mission.delay(mission.id)
+    transaction.on_commit(lambda mid=mission.id: run_mission.delay(mid))
     return 201, _serialize_signal(signal)
 
 
@@ -416,7 +417,7 @@ def ingest_mock_signal(request, body: MockSignalIn):
     signal.routing_status = "routed"
     signal.routing_reason = decision.reason
     signal.save(update_fields=["mission", "routing_status", "routing_reason"])
-    run_mission.delay(mission.id)
+    transaction.on_commit(lambda mid=mission.id: run_mission.delay(mid))
     return 201, _serialize_signal(signal)
 
 
@@ -477,7 +478,7 @@ def ingest_feature_request_signal(request, body: FeatureRequestIn):
     signal.routing_status = "routed"
     signal.routing_reason = decision.reason
     signal.save(update_fields=["mission", "routing_status", "routing_reason"])
-    run_mission.delay(mission.id)
+    transaction.on_commit(lambda mid=mission.id: run_mission.delay(mid))
     return 201, _serialize_signal(signal)
 
 
@@ -587,7 +588,7 @@ def ingest_whatsapp_signal(request, body: WhatsAppWebhookIn):
     signal.routing_status = "routed"
     signal.routing_reason = decision.reason
     signal.save(update_fields=["mission", "routing_status", "routing_reason"])
-    run_mission.delay(mission.id)
+    transaction.on_commit(lambda mid=mission.id: run_mission.delay(mid))
 
     try:
         wa_client.send_text(
