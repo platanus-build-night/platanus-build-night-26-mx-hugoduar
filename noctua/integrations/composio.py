@@ -14,6 +14,7 @@ from django.conf import settings
 
 # Import surface: only this module imports `composio` directly.
 from composio import Composio  # type: ignore[import-untyped]
+from composio import exceptions as _composio_exc  # type: ignore[import-untyped]
 
 
 # ---- Return types -----------------------------------------------------------
@@ -43,10 +44,27 @@ class ComposioAuthError(Exception):
     """Raised when a Composio call fails because of expired / revoked auth."""
 
 
-def _looks_like_auth_error(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    cls = type(exc).__name__.lower()
-    return "auth" in msg or "expired" in msg or "auth" in cls
+# Typed SDK exceptions that indicate an auth/credential failure.
+# ApiKeyError       — API key missing or invalid
+# DescopeAuthError  — Descope-backed auth failure
+# ConnectedAccountError and subclasses — expired/revoked/inaccessible OAuth
+#     connections (ConnectedAccountNotFoundError, InvalidConnectedAccount,
+#     ComposioSharedAccessDeniedError, ComposioSharedConnectionNotAccessibleError)
+# HTTPError with status 401/403 — raw HTTP auth rejection from the Composio API
+_AUTH_EXCEPTIONS = (
+    _composio_exc.ApiKeyError,
+    _composio_exc.DescopeAuthError,
+    _composio_exc.ConnectedAccountError,  # covers all subclasses
+)
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """Return True iff exc is a composio SDK auth/credential failure."""
+    if isinstance(exc, _AUTH_EXCEPTIONS):
+        return True
+    if isinstance(exc, _composio_exc.HTTPError) and exc.status_code in (401, 403):
+        return True
+    return False
 
 
 # ---- Client -----------------------------------------------------------------
@@ -73,7 +91,7 @@ class ComposioClient:
         try:
             raw = self._sdk.tools.execute(slug=slug, arguments=arguments, user_id=user_id)
         except Exception as e:
-            if _looks_like_auth_error(e):
+            if _is_auth_error(e):
                 raise ComposioAuthError(str(e)) from e
             raise
         return ExecutionResult(

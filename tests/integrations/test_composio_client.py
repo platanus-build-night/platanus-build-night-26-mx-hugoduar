@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
+from composio import exceptions as composio_exc
 from noctua.integrations.composio import (
     ComposioClient,
     ExecutionResult,
@@ -49,15 +50,61 @@ def test_execute_returns_failed_result_with_error(settings):
         assert r.error == "rate limited"
 
 
-def test_execute_translates_auth_error(settings):
+def test_execute_translates_api_key_error(settings):
     settings.COMPOSIO_API_KEY = "k"
     with patch("noctua.integrations.composio.Composio") as sdk:
-        # Simulate the SDK raising whatever it raises for expired auth.
-        # We catch any exception whose str contains 'auth' (case-insensitive)
-        # or whose class name contains 'Auth' and re-raise as ComposioAuthError.
-        sdk.return_value.tools.execute.side_effect = RuntimeError("AuthExpired: token revoked")
+        # ApiKeyError is raised when the configured API key is invalid.
+        sdk.return_value.tools.execute.side_effect = composio_exc.ApiKeyError("invalid key")
         c = ComposioClient()
         with pytest.raises(ComposioAuthError):
+            c.execute(slug="X", arguments={}, user_id="u")
+
+
+def test_execute_translates_connected_account_error(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        # ConnectedAccountNotFoundError is a subclass of ConnectedAccountError —
+        # covers expired/revoked OAuth tokens.
+        sdk.return_value.tools.execute.side_effect = composio_exc.ConnectedAccountNotFoundError(
+            "connected account expired"
+        )
+        c = ComposioClient()
+        with pytest.raises(ComposioAuthError):
+            c.execute(slug="X", arguments={}, user_id="u")
+
+
+def test_execute_translates_http_401(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        # HTTPError with status 401 is the raw HTTP auth rejection.
+        sdk.return_value.tools.execute.side_effect = composio_exc.HTTPError(
+            "401 Unauthorized", status_code=401
+        )
+        c = ComposioClient()
+        with pytest.raises(ComposioAuthError):
+            c.execute(slug="X", arguments={}, user_id="u")
+
+
+def test_execute_translates_http_403(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        sdk.return_value.tools.execute.side_effect = composio_exc.HTTPError(
+            "403 Forbidden", status_code=403
+        )
+        c = ComposioClient()
+        with pytest.raises(ComposioAuthError):
+            c.execute(slug="X", arguments={}, user_id="u")
+
+
+def test_execute_does_not_swallow_non_auth_http_error(settings):
+    settings.COMPOSIO_API_KEY = "k"
+    with patch("noctua.integrations.composio.Composio") as sdk:
+        # A 500 HTTPError must NOT be translated — it should propagate as-is.
+        sdk.return_value.tools.execute.side_effect = composio_exc.HTTPError(
+            "Internal Server Error", status_code=500
+        )
+        c = ComposioClient()
+        with pytest.raises(composio_exc.HTTPError):
             c.execute(slug="X", arguments={}, user_id="u")
 
 
