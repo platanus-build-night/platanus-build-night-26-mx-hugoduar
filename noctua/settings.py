@@ -53,12 +53,12 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 COMPOSIO_API_KEY = os.environ.get("COMPOSIO_API_KEY", "")
 COMPOSIO_USER_ID = os.environ.get("COMPOSIO_USER_ID", "noctua_default")
-KAPSO_API_KEY = os.getenv("KAPSO_API_KEY", "")
-KAPSO_WEBHOOK_SECRET = os.getenv("KAPSO_WEBHOOK_SECRET", "")
-KAPSO_PHONE_NUMBER_ID = os.getenv("KAPSO_PHONE_NUMBER_ID", "")
-KAPSO_API_BASE_URL = os.getenv("KAPSO_API_BASE_URL", "https://api.kapso.ai")
+KAPSO_API_KEY = os.environ.get("KAPSO_API_KEY", "")
+KAPSO_WEBHOOK_SECRET = os.environ.get("KAPSO_WEBHOOK_SECRET", "")
+KAPSO_PHONE_NUMBER_ID = os.environ.get("KAPSO_PHONE_NUMBER_ID", "")
+KAPSO_API_BASE_URL = os.environ.get("KAPSO_API_BASE_URL", "https://api.kapso.ai")
 NOCTUA_WHATSAPP_ALLOWLIST = [
-    n.strip() for n in os.getenv("NOCTUA_WHATSAPP_ALLOWLIST", "").split(",") if n.strip()
+    n.strip() for n in os.environ.get("NOCTUA_WHATSAPP_ALLOWLIST", "").split(",") if n.strip()
 ]
 NOCTUA_ARCHIVE_DIR = BASE_DIR / "archive"
 NOCTUA_TOOLS_DIR = BASE_DIR / "tools"
