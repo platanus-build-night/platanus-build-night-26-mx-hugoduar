@@ -53,6 +53,11 @@ def run_mission(mission_id: int):
         m.finished_at = now()
         m.save(update_fields=["state", "state_reason", "finished_at"])
         sandbox.teardown()
+        from noctua.runner.archive import archive_mission
+        try:
+            archive_mission(m.id)
+        except Exception:
+            pass  # archive is best-effort; don't fail the mission on archive error
     return mission_id
 
 
