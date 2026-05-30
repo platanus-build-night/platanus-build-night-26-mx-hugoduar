@@ -47,3 +47,9 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 NOCTUA_ARCHIVE_DIR = BASE_DIR / "archive"
 NOCTUA_TOOLS_DIR = BASE_DIR / "tools"
+
+# In tests, run Celery tasks inline so we don't need a worker.
+# Driven by the NOCTUA_CELERY_EAGER env var (set by pytest-django via DJANGO_SETTINGS_MODULE auto-load).
+if os.environ.get("NOCTUA_CELERY_EAGER") == "1":
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True

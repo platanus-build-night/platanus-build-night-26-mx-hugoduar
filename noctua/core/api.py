@@ -28,6 +28,8 @@ def create_mission(request, payload: MissionCreate):
         auto_act=payload.auto_act,
     )
     run_mission.delay(m.id)
+    # Refresh to get the latest state from the database (especially when running Celery tasks eagerly in tests)
+    m.refresh_from_db()
     return 201, m
 
 @api.get("/missions/{mission_id}", response=MissionOut)

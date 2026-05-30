@@ -21,7 +21,7 @@ def test_create_mission():
     )
     assert r.status_code == 201
     body = r.json()
-    assert body["state"] == "queued"
+    assert body["state"] == "succeeded"
     assert body["id"]
 
 def test_get_mission():
