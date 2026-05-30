@@ -33,3 +33,31 @@ export interface Producer {
   rubric_md: string;
   version: number;
 }
+
+export interface MissionListItem {
+  id: number;
+  goal: string;
+  state: MissionState;
+  state_reason: string;
+  producer_key: string;
+  spent: Record<string, number>;
+  budget: Record<string, number>;
+  created_at: string;
+  finished_at?: string | null;
+}
+
+export interface PlanStep {
+  step_id: string;
+  kind: "exec" | "tool" | "edit";
+  payload: Record<string, unknown>;
+  status: "pending" | "succeeded" | "failed" | "paused";
+  attempt: number;
+  result?: { ok?: boolean; value?: unknown; error?: string } | null;
+}
+
+export interface Plan {
+  id: number;
+  version: number;
+  steps: PlanStep[];
+  rendered_md: string;
+}

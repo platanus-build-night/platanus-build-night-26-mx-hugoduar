@@ -4,8 +4,8 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from ninja import NinjaAPI, Schema
 from noctua.core.auth import BearerAuth
-from noctua.core.models import Mission, Artifact, Tool, Producer
-from noctua.core.schemas import MissionCreate, MissionOut, RespondIn, ArtifactOut
+from noctua.core.models import Mission, Artifact, Tool, Producer, Plan
+from noctua.core.schemas import MissionCreate, MissionOut, MissionListOut, PlanOut, RespondIn, ArtifactOut
 from noctua.producers.registry import get_producer
 
 api = NinjaAPI(title="Noctua", auth=BearerAuth())
@@ -32,9 +32,32 @@ def create_mission(request, payload: MissionCreate):
     m.refresh_from_db()
     return 201, m
 
+@api.get("/missions", response=list[MissionListOut])
+def list_missions(request, state: str | None = None, producer_key: str | None = None):
+    qs = Mission.objects.all().order_by("-id")
+    if state:
+        qs = qs.filter(state=state)
+    if producer_key:
+        qs = qs.filter(producer_key=producer_key)
+    return [
+        {
+            "id": m.id, "goal": m.goal, "state": m.state,
+            "state_reason": m.state_reason, "producer_key": m.producer_key,
+            "spent": m.spent or {}, "budget": m.budget or {},
+            "created_at": m.created_at.isoformat() if m.created_at else "",
+            "finished_at": m.finished_at.isoformat() if m.finished_at else None,
+        }
+        for m in qs[:200]
+    ]
+
 @api.get("/missions/{mission_id}", response=MissionOut)
 def get_mission(request, mission_id: int):
     return get_object_or_404(Mission, id=mission_id)
+
+@api.get("/missions/{mission_id}/plans", response=list[PlanOut])
+def list_mission_plans(request, mission_id: int):
+    qs = Plan.objects.filter(mission_id=mission_id).order_by("version")
+    return [{"id": p.id, "version": p.version, "steps": p.steps, "rendered_md": p.rendered_md} for p in qs]
 
 @api.post("/missions/{mission_id}/cancel", response=MissionOut)
 def cancel_mission(request, mission_id: int):

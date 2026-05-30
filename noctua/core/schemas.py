@@ -1,3 +1,4 @@
+from datetime import datetime
 from ninja import Schema
 from typing import Optional
 
@@ -23,6 +24,26 @@ class MissionOut(Schema):
     budget: dict
     spent: dict
     needs_input_prompt: Optional[str] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+class MissionListOut(Schema):
+    id: int
+    goal: str
+    state: str
+    state_reason: str
+    producer_key: str
+    spent: dict
+    budget: dict
+    created_at: str
+    finished_at: Optional[str] = None
+
+class PlanOut(Schema):
+    id: int
+    version: int
+    steps: list[dict]
+    rendered_md: str
 
 class RespondIn(Schema):
     response: str
