@@ -33,7 +33,7 @@ Kapso is the WhatsApp Business API provider. Sandbox config (already set up):
 | Producer routing | LLM classifier (Haiku) reads message + media kind, picks producer + drafts goal | Most natural UX; user doesn't learn commands. Cheap (Haiku, classification only). |
 | Reply UX | Ack on receipt + final artifact when mission terminates | Two outbound messages per mission. User gets feedback before mission starts and the result without opening the UI. |
 | Auth | Phone-number allowlist via `NOCTUA_WHATSAPP_ALLOWLIST` env var | Cheap, sufficient for sandbox/demo. Non-allowlisted messages stored as `Signal(routing_status="ignored")` for triage. |
-| Audio handling | Download from Kapso → OpenAI Whisper → transcript in goal | Predictable, cheap, debuggable. Adds `OPENAI_API_KEY` dep. |
+| Audio handling | Use `message.kapso.transcript.text` from the Kapso v2 payload (Kapso transcribes automatically) | No Whisper/OpenAI dep. Discovered while reading `references/webhooks-event-types.md` after the brainstorm. |
 | Webhook delivery (dev) | User runs `ngrok http 8000` and pastes the public URL when creating the Kapso webhook | Standard hackathon dev loop. |
 
 ## Architecture
@@ -73,7 +73,7 @@ Three files. Module is a peer because both the request handler (inbound: media d
 
 - `signature.py` — `verify(raw_body: bytes, header: str, secret: str) -> bool`. HMAC-SHA256 with `hmac.compare_digest`. Header name (`X-Kapso-Signature` or similar) confirmed against `references/webhooks-overview.md` in the integrate-whatsapp skill at implementation time.
 
-- `media.py` — `download(message: dict, signal_id: int) -> dict` returning `{"media_paths": [Path, ...], "transcript": str | None, "kind": "text"|"image"|"audio"|"document"|"video"}`. Fetches via Kapso Meta proxy (`GET /meta/whatsapp/v24.0/{media_id}` returns a signed URL; second GET pulls bytes). Writes to `archive/whatsapp_media/<signal_id>/<media_id>.<ext>`. Idempotent — skips download if the file already exists. For `kind="audio"`, calls `_transcribe(path)` using OpenAI Whisper (`openai.audio.transcriptions.create(model="whisper-1")`).
+- `media.py` — `download(message: dict, signal_id: int) -> dict` returning `{"media_paths": [Path, ...], "transcript": str | None, "kind": "text"|"image"|"audio"|"document"|"video", "caption": str}`. Reads `message.kapso.media_url` (Kapso-signed) and downloads bytes with `X-API-Key: $KAPSO_API_KEY` to `archive/whatsapp_media/<signal_id>/<filename>`. Idempotent — skips download if the file already exists. **Audio transcripts come from `message.kapso.transcript.text` already in the payload** — no Whisper call needed. For `type="text"`, returns `{"media_paths": [], "transcript": None, "kind": "text", "caption": ""}` (no I/O).
 
 - `client.py` — `send_text(to: str, body: str) -> None`. Thin `httpx.Client` wrapper around Kapso's `POST /meta/whatsapp/v24.0/{phone_number_id}/messages` with a text body. Logs on failure, never raises. Reads `KAPSO_API_KEY` and `KAPSO_PHONE_NUMBER_ID` from env.
 
@@ -104,7 +104,7 @@ KAPSO_API_KEY=
 KAPSO_WEBHOOK_SECRET=
 KAPSO_PHONE_NUMBER_ID=597907523413541
 NOCTUA_WHATSAPP_ALLOWLIST=525529404910
-OPENAI_API_KEY=                 # for Whisper transcription
+KAPSO_API_BASE_URL=https://api.kapso.ai    # used for both Meta proxy and signed media URLs
 ```
 
 ### Model + migration
@@ -113,7 +113,7 @@ Add `"whatsapp"` to `SIGNAL_SOURCES` in `noctua/core/models.py:4`. One-liner Dja
 
 ### `pyproject.toml`
 
-Add `openai>=1.40` to runtime dependencies.
+Add `respx>=0.21` to dev dependencies (HTTP mocking for tests). No new runtime deps — `httpx` and `anthropic` are already present.
 
 ### UI
 
@@ -178,7 +178,7 @@ Webhook handler responses (Kapso retries on 5xx, not on 4xx):
 | Allowlist miss | `200` + `Signal(ignored, "from <num> not in allowlist")` | Yes; no ack reply (anti-abuse) |
 | Duplicate `message.id` | `200` + existing Signal | Already there |
 | Media download fails | `200` + `Signal(failed, "media download: <err>")` | Yes; no automatic retry |
-| Whisper transcription fails | Route with empty transcript; `payload["transcription_error"]` set | Yes (graceful degradation) |
+| Audio with no Kapso transcript | Route with empty transcript (caption-only) | Yes (graceful degradation) |
 | Classifier ignores (no tool_use) | `200` + `Signal(ignored, "classifier declined: <text>")` | Yes; no ack |
 | Classifier picks `pr` without repo URL | `200` + `Signal(ignored, "pr producer requires repo URL")` | Yes |
 | Mission creation throws (DB error) | `500` | No; Kapso retries |
@@ -193,7 +193,7 @@ Router failure modes:
 
 Intentional non-defenses:
 - **No per-number rate limit.** Allowlist is the gate; allowlisted users are trusted.
-- **No retry on Whisper failure.** Fall back to text-only routing. OpenAI SDK already retries internally.
+- **No transcription fallback.** Kapso transcribes server-side; if their transcript is missing, we route on caption + media type only.
 
 Logging: every branch logs with `mission_id` (where available) and `signal_id` so the existing log-streaming UI shows it.
 
@@ -216,10 +216,10 @@ Unit tests (no Docker, no live API; run in every `make test`):
 - Anthropic raises → ignore.
 
 `tests/whatsapp/test_media.py` — uses `respx` to stub Kapso HTTP.
-- Image download → file written, kind="image".
-- Audio download + Whisper mocked → transcript returned.
-- Whisper raises → transcript=None plus payload error key.
-- Idempotency: second `download()` with same media id makes no HTTP call.
+- Image download → file written under `archive/whatsapp_media/<signal_id>/`, kind="image".
+- Audio payload with embedded Kapso transcript → transcript returned without HTTP call to a transcription service.
+- Audio payload missing transcript → returns transcript=None without raising.
+- Idempotency: second `download()` for the same `media_url` filename makes no HTTP call.
 
 `tests/whatsapp/test_api.py` — Ninja test client, full handler. Mocks: `verify_signature` real, `media.download` patched, `WhatsAppRouter.decide` patched, `client.send_text` patched.
 - Valid sig + text from allowlisted number → 201, Signal + Mission, ack sent.
@@ -261,6 +261,6 @@ Acknowledged coverage gaps (not blocking):
 | `noctua/whatsapp/media.py` | New |
 | `noctua/whatsapp/client.py` | New |
 | `noctua/runner/tasks.py` | Add `_maybe_reply_to_whatsapp` call in `run_mission` finally |
-| `pyproject.toml` | Add `openai>=1.40`; add `noctua.whatsapp` to `[tool.setuptools.packages.find]` (already covered by `noctua*` glob) |
-| `.env.example` | New keys: `KAPSO_API_KEY`, `KAPSO_WEBHOOK_SECRET`, `KAPSO_PHONE_NUMBER_ID`, `NOCTUA_WHATSAPP_ALLOWLIST`, `OPENAI_API_KEY` |
+| `pyproject.toml` | Add `respx>=0.21` to dev deps. No runtime deps added. |
+| `.env.example` | New keys: `KAPSO_API_KEY`, `KAPSO_WEBHOOK_SECRET`, `KAPSO_PHONE_NUMBER_ID`, `KAPSO_API_BASE_URL`, `NOCTUA_WHATSAPP_ALLOWLIST` |
 | `tests/whatsapp/` | New test tree (signature, router, media, api, reply) |
