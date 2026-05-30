@@ -20,3 +20,10 @@ seed:
 
 test:
 	pytest -x
+
+.PHONY: reset-demo
+reset-demo:
+	cd ../noctua-demo-app && \
+	  (gh pr list --state all --json number --jq '.[].number' | xargs -n1 -I{} gh pr close {} 2>/dev/null || true) && \
+	  git fetch origin && git reset --hard origin/main && \
+	  (git branch | grep noctua/ | xargs -n1 -I{} git branch -D {} 2>/dev/null || true)
