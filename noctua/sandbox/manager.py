@@ -1,4 +1,6 @@
+import io
 import os
+import tarfile
 import docker
 from dataclasses import dataclass, field
 
@@ -9,6 +11,13 @@ class SandboxRunInfo:
     image_ref: str = ""
     state: str = "booting"
     log_path: str = ""
+
+
+@dataclass
+class ExecResult:
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
 class Sandbox:
@@ -57,10 +66,40 @@ class Sandbox:
             )
         return self.info
 
-    def exec(self, cmd: list[str], stdin: str = "", timeout: int = 60):
-        # placeholder — full impl in Task 12
+    def exec(self, cmd: list[str], stdin: str = "", timeout: int = 60) -> ExecResult:
+        # docker SDK exec doesn't honor stdin easily; for stdin we'd shell-wrap.
+        # For MVP we ignore stdin and accept timeout via daemon-side wait.
         result = self.container.exec_run(cmd, demux=True)
-        return result
+        stdout_b, stderr_b = result.output if isinstance(result.output, tuple) else (result.output, None)
+        return ExecResult(
+            exit_code=result.exit_code,
+            stdout=(stdout_b or b"").decode("utf-8", "replace"),
+            stderr=(stderr_b or b"").decode("utf-8", "replace"),
+        )
+
+    def write_file(self, path: str, content: bytes) -> None:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo(name=path.lstrip("/"))
+            info.size = len(content)
+            tar.addfile(info, io.BytesIO(content))
+        buf.seek(0)
+        self.container.put_archive("/", buf.read())
+
+    def read_file(self, path: str) -> bytes:
+        stream, _ = self.container.get_archive(path)
+        buf = io.BytesIO()
+        for chunk in stream:
+            buf.write(chunk)
+        buf.seek(0)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            member = tar.next()
+            f = tar.extractfile(member)
+            return f.read() if f else b""
+
+    def stream_logs(self):
+        for line in self.container.logs(stream=True, follow=True):
+            yield line.decode("utf-8", "replace")
 
     def teardown(self):
         if self.container is not None:
