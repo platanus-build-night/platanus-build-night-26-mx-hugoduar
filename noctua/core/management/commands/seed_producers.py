@@ -4,11 +4,10 @@ from noctua.core.models import Producer
 
 SEED = [
     ("pr", "pr", "noctua/producers/pr/rubric.md"),
-    ("social_post", "social_post", "noctua/producers/stub/social_post_rubric.md"),
-    ("clinical_analysis", "analysis", "noctua/producers/stub/clinical_rubric.md"),
-    ("diagnostic", "diagnostic", "noctua/producers/stub/diagnostic_rubric.md"),
-    ("cad", "cad", "noctua/producers/stub/cad_rubric.md"),
-    ("tool_demo", "tool", "noctua/producers/stub/tool_rubric.md"),
+    ("social_post", "social_post", "noctua/producers/external/rubrics/social_post.md"),
+    ("clinical_analysis", "analysis", "noctua/producers/external/rubrics/clinical_analysis.md"),
+    ("diagnostic", "diagnostic", "noctua/producers/external/rubrics/diagnostic.md"),
+    ("cad", "cad", "noctua/producers/external/rubrics/cad.md"),
 ]
 
 class Command(BaseCommand):

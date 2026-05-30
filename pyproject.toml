@@ -32,11 +32,10 @@ noctua = "noctua.cli:cli"
 
 [project.entry-points."noctua.producers"]
 pr = "noctua.producers.pr:PRProducer"
-social_post = "noctua.producers.stub:SocialPostStub"
-clinical_analysis = "noctua.producers.stub:ClinicalAnalysisStub"
-diagnostic = "noctua.producers.stub:DiagnosticStub"
-cad = "noctua.producers.stub:CADStub"
-tool_demo = "noctua.producers.stub:ToolStub"
+social_post = "noctua.producers.external.social_post:SocialPostProducer"
+clinical_analysis = "noctua.producers.external.clinical_analysis:ClinicalAnalysisProducer"
+diagnostic = "noctua.producers.external.diagnostic:DiagnosticProducer"
+cad = "noctua.producers.external.cad:CADProducer"
 
 [tool.setuptools.packages.find]
 include = ["noctua*"]
