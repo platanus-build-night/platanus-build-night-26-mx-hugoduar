@@ -165,17 +165,13 @@ def update_rubric(request, key: str, payload: RubricIn):
 _TERMINAL = ("succeeded", "failed", "stopped", "needs_input")
 
 
-@api.get("/missions/{mission_id}/logs", auth=None)
-def stream_mission_logs(request, mission_id: int, token: str = ""):
+@api.get("/missions/{mission_id}/logs")
+def stream_mission_logs(request, mission_id: int):
     """Server-Sent Events stream of the sandbox log file for this mission.
 
-    Auth is via ?token=... query param (EventSource can't set headers).
+    Auth is via standard BearerAuth (Authorization: Bearer <token> header).
     Streams until the mission reaches a terminal state or 30 min, whichever first.
     """
-    if not settings.NOCTUA_API_TOKEN or token != settings.NOCTUA_API_TOKEN:
-        return StreamingHttpResponse("event: error\ndata: unauthorized\n\n",
-                                     status=401, content_type="text/event-stream")
-
     log_path = Path(settings.NOCTUA_ARCHIVE_DIR) / str(mission_id) / "sandbox.log"
 
     def event_stream():

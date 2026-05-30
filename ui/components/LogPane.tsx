@@ -13,9 +13,8 @@ export default function LogPane({ missionId }: Props) {
   const scrollRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
-    const api = process.env.NEXT_PUBLIC_NOCTUA_API ?? "http://127.0.0.1:8000";
-    const token = process.env.NEXT_PUBLIC_NOCTUA_TOKEN ?? "";
-    const url = `${api}/api/missions/${missionId}/logs?token=${encodeURIComponent(token)}`;
+    // Connect to the Next.js proxy route — token stays server-side.
+    const url = `/api/missions/${missionId}/logs`;
     const es = new EventSource(url);
 
     es.onopen = () => setStatus("live");
