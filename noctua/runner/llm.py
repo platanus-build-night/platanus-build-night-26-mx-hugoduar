@@ -11,6 +11,12 @@ def client():
 
 def call_with_cache(messages, system, model, max_tokens=4000, tools=None):
     """Call Claude with prompt caching enabled on the system block."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is empty. The Celery worker did not get the env "
+            "loaded — restart the worker after `set -a; source .env; set +a` "
+            "or ensure .env exists at the project root."
+        )
     kw = {
         "model": model,
         "max_tokens": max_tokens,

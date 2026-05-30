@@ -57,25 +57,35 @@ class Sandbox:
         self.info.container_id = self.container.id
         self.info.image_ref = image
         self.info.state = "ready"
+        # Always bootstrap dev tools + git identity so any git command works,
+        # regardless of whether the LLM uses the bundled tool or raw bash.
+        # gh auth setup-git is gated on GITHUB_TOKEN presence to stay a no-op
+        # when the token is absent.
+        # NOTE: future optimisation — bake these into a custom image so boot is faster.
+        self.exec(
+            [
+                "bash",
+                "-lc",
+                "set -e && "
+                "apt-get update -qq && "
+                "apt-get install -qq -y git curl ca-certificates && "
+                "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg "
+                "  | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                "chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && "
+                "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] "
+                "https://cli.github.com/packages stable main' "
+                "  > /etc/apt/sources.list.d/github-cli.list && "
+                "apt-get update -qq && apt-get install -qq -y gh && "
+                "git config --global user.email 'noctua@local' && "
+                "git config --global user.name 'Noctua' && "
+                "git config --global init.defaultBranch main && "
+                "( [ -n \"$GITHUB_TOKEN\" ] && gh auth setup-git || true )",
+            ],
+            timeout=600,
+        )
+        # Conditionally clone if a repo_url was provided.
         if repo_url:
             _validate_repo_url(repo_url)
-            # 1) install git + gh (no user data interpolated)
-            self.exec(
-                [
-                    "bash",
-                    "-lc",
-                    "set -e && "
-                    "apt-get update -qq && "
-                    "apt-get install -qq -y git curl ca-certificates && "
-                    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
-                    "chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && "
-                    "echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main' > /etc/apt/sources.list.d/github-cli.list && "
-                    "apt-get update -qq && apt-get install -qq -y gh && "
-                    "gh auth setup-git",
-                ],
-                timeout=600,
-            )
-            # 2) clone the validated repo as a discrete argv (no shell)
             self.exec(["git", "clone", "--", repo_url, "/work"], timeout=300)
         return self.info
 
